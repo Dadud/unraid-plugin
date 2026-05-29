@@ -104,15 +104,13 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| D1 | `draft/den-settings-connection` | Settings: connection & health | Socket path, Wolf probe, SSE status, paired count, link pairing | [ ] |
-| D2 | `draft/den-settings-local` | Settings: Den-local config | Compat targets, covers mount, orphan app count, data volume | [ ] |
-| D3 | `draft/den-settings-sessions` | Settings: active sessions | `GET /api/v1/sessions` list; preview placeholder | [ ] |
-| D4 | `draft/den-settings-server-readonly` | Settings: server read-only | Use **Tomlyn** to show hostname/codec flags from `/etc/wolf/cfg/config.toml`; no fake edit | [ ] |
-| D5 | `draft/den-info-disk` | Info / overview | Wire `DiskUsage.razor` | [ ] |
-| ~~D6~~ | — | ~~Import gow presets~~ | **DONE upstream** (`DefaultAppLoader`) — instead: harden parsing + add plex/emby/youtube | [merge] |
-| D7 | `draft/den-profile-update` | Use W1 in-place update | Blocked on wolf **W1**; bindings already bumped | [ ] |
+| D1–D5 | `draft/den-settings-overhaul` | Settings overhaul (one cohesive PR) | Connection&health, Den-local config, active sessions (`GetSessionsAsync`), server read-only (Tomlyn), Overview wires `DiskUsage` | ✅ [fork PR #2](https://github.com/Dadud/wolf-den/pull/2) (builds) |
+| ~~D6~~ | — | ~~Import gow presets~~ | **DONE upstream** (`DefaultAppLoader`) — folded into D9 | [merge] |
+| D7 | `draft/den-profile-update` | Use W1 in-place update | Blocked on wolf **W1** ([fork PR #2](https://github.com/Dadud/wolf/pull/2)); bindings regen needed first | [ ] |
 | D8 | `draft/den-test-route-gate` | Gate `/test` to Development | — | [ ] |
-| D9 | `draft/den-defaultapp-harden` | Harden `DefaultAppLoader` | Defensive TOML keys, optional HDR/pipeline passthrough | [ ] |
+| D9 | `draft/den-defaultapp-harden` | Harden `DefaultAppLoader` | Defensive TOML keys; +plex/emby/youtube; HDR/pipeline passthrough | ✅ [fork PR #1](https://github.com/Dadud/wolf-den/pull/1) (builds) |
+
+> **Settings shipped as one read-only overhaul PR** (not 5 micro-PRs) since it is a from-scratch page. Sessions table keys on app/client/IP because **`StreamSession` exposes no stable session id** in bindings 0.1.0-alpha → see §4.8 (blocks #8 view-stream). Compat-tools options type lives on `compatibilitytools-fixes`, so D2 reads a config key or shows "not configured".
 
 ### 1.4 Settings overhaul IA
 
@@ -145,14 +143,14 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| W1 | `draft/wolf-profiles-update` | `POST /api/v1/profiles/update` | In-place profile edit; stable ordering | [ ] |
-| W2 | `draft/wolf-session-peek` | Session preview API | Read-only stream snapshot/metadata | [ ] |
-| W3 | `draft/wolf-openapi-bindings` | OpenAPI publish + bindings coordination | Tie to bindings `v0.1.x` | [ ] |
-| W4 | `draft/wolf-socket-docs` | Document socket path variants | runtime dir vs `/var/run/wolf` vs plugin volume | [ ] |
-| W5 | `draft/wolf-config-api` | Global config read (then write) | hostname, codec flags, render_node — unblocks Den D4 edit + configurability | [ ] |
+| W1 | `draft/wolf-profiles-update` | `POST /api/v1/profiles/update` | In-place, order-preserving; mirrors Add/RemoveProfile | ✅ [fork PR #2](https://github.com/Dadud/wolf/pull/2) ⚠️ not compiled |
+| W2 | `draft/wolf-session-peek` | `GET /api/v1/sessions/metadata` | Read-only metadata (res/fps/audio/app/streaming). Visual preview = follow-up (GStreamer); no `created_at` yet | ✅ [fork PR #4](https://github.com/Dadud/wolf/pull/4) ⚠️ not compiled |
+| W3 | — (no branch) | OpenAPI + bindings | OpenAPI auto-generated from `rfl` route annotations → endpoints appear in `/api/v1/openapi-schema`; **bindings must be regenerated + version-bumped** | [bindings TODO] |
+| W4 | `draft/wolf-socket-docs` | Document socket path variants | runtime dir vs `/var/run/wolf` vs plugin volume | ✅ [fork PR #1](https://github.com/Dadud/wolf/pull/1) (docs) |
+| W5 | `draft/wolf-config-get` | `GET /api/v1/config` (read-only) | hostname/uuid/hevc/av1 + gst defaults from serialised TOML — unblocks Den D4 + configurability | ✅ [fork PR #3](https://github.com/Dadud/wolf/pull/3) ⚠️ not compiled |
 | W6 | `draft/wolf-quickstart-doc` | quickstart vs Unraid plugin doc | No plugin duplication | [ ] |
 
-**Tracking:** [wolf#356](https://github.com/games-on-whales/wolf/issues/356) (open, profile update + stream peek).
+**Tracking:** [wolf#356](https://github.com/games-on-whales/wolf/issues/356) (open, profile update + stream peek). **None of the C++ PRs were compiled here** (large GStreamer build) — CI/maintainer build required; each PR body flags the risky spots (W5 request-time TOML load + `rfl::Description` response fields; W2 `streaming` flag derived from `wayland_display`).
 
 ### 2.3 Stability bugs (ecosystem context, mostly upstream-owned)
 
@@ -177,11 +175,13 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| G1 | `draft/gow-preset-mount-examples` | Commented mount examples | es-de, retroarch | [ ] |
-| G2 | `draft/gow-run-sway-normalize` | Normalize RUN_SWAY | all presets | [ ] |
-| G3 | `draft/gow-preset-ci` | Preset schema CI | deserialize vs Wolf `BaseApp`; also protects Den `DefaultAppLoader` | [ ] |
+| G1 | `draft/gow-preset-mount-examples` | Commented mount examples | es-de, retroarch (`mounts` stays `[]`, verified) | ✅ [fork PR #1](https://github.com/Dadud/gow/pull/1) |
+| G2 | `draft/gow-run-sway-normalize` | Normalize RUN_SWAY → `true` | 5 presets fixed (emby/es-de/firefox/plex/youtube); base image uses `[ -n "$RUN_SWAY" ]`, no numeric test | ✅ [fork PR #2](https://github.com/Dadud/gow/pull/2) |
+| G3 | `draft/gow-preset-ci` | Preset schema CI | `bin/validate-presets.py` (tomllib) + GH workflow on `apps/**`; protects Den `DefaultAppLoader` | ✅ [fork PR #3](https://github.com/Dadud/gow/pull/3) |
 | G4 | `draft/gow-preset-example` | `wolf.config.example.toml` | placeholder host paths | [ ] |
 | G5 | `draft/gow-preset-pipeline` | Single-source export | gow → wolf default slice + Den catalog | [ ] |
+
+> **G3 validator ran clean over all 13 presets** (exit 0): every preset declares `title`, `icon_png_path`, `runner.name/image` and `devices/env/mounts/ports` as arrays. So **no real `DefaultAppLoader` key-gap exists today** — D9 hardening is defense-in-depth + future-proofing, not a current-bug fix. Failure path verified against a crafted bad preset.
 
 ### 3.3 ES-DE / emulator UX (gow + den, NOT plugin)
 
@@ -250,7 +250,15 @@ Rolling `:stable`/`:edge` tags + alpha bindings = real drift risk (already bit: 
 
 ### 4.7 Bindings
 
-stable Den pins `0.0.2-alpha`; latest tag `v0.1.1-alpha`; `dev-improvements` bumped. Any wolf API change → bindings release (W3) → Den bump (D7) in lockstep.
+stable Den pins `0.0.2-alpha`; `dev-improvements` pins `0.1.0-alpha`. Any wolf API change → bindings release (W3) → Den bump (D7) in lockstep. **New endpoints (W1/W2/W5) are auto-published to `/api/v1/openapi-schema` via `rfl` route annotations**, but the C# bindings package must be regenerated + version-bumped before Den can call them (D7 etc.).
+
+### 4.8 Missing stable session id (cross-repo, blocks view-stream)
+
+Confirmed from both Den and wolf work: **`StreamSession` exposes no stable session id** (only app/client/ip/resolution), and **no `created_at` timestamp**. Consequences:
+- Den's new Settings "Active sessions" tab (D1–D5) and wolf's `GET /api/v1/sessions/metadata` (W2) must key on app/client/IP — fragile, can't address one session.
+- Per-session actions (stop, **view-stream [den#8](https://github.com/games-on-whales/wolf-den/issues/8)**) are blocked.
+
+**Proposed wolf follow-up (feeds W2/W3):** add `session_id` + `created_at` to `StreamSession` and surface them in the sessions endpoints; then bindings regen → Den keys the table on `session_id` and unlocks #8.
 
 ---
 
@@ -287,4 +295,5 @@ The in-stream **end-user** launcher; **Godot/C#** (`src/`, `config.toml`, `Skerg
 |------|--------|--------|
 | 2026-05-29 | — | Initial skeleton from E2E audit + multi-repo plan |
 | 2026-05-29 | — | Opus review: full repo map; wolf-ui (research-only) + wolfmanager (stale/ignore); Den base→dev-improvements, D6 done upstream, +D9; version-skew §4.6; configurability §4.4; cross-platform §4.5; stability bugs §2.3 |
-| 2026-05-29 | impl | Fork remotes wired (gh `Dadud`); Den WIP reset to `dev-improvements` (backup ref). **Plugin PRs opened on fork:** [#1 P1-P3 ROM grab-and-go](https://github.com/Dadud/unraid-plugin/pull/1), [#2 P4-P9 apps/presets/digest-pinning/ES-DE-removal/docs](https://github.com/Dadud/unraid-plugin/pull/2). §4.6 compatibility matrix populated; P8 digest pinning DONE. Den/wolf/gow draft branches in progress. |
+| 2026-05-29 | impl | Fork remotes wired (gh `Dadud`); Den WIP reset to `dev-improvements` (backup ref). **Plugin PRs opened on fork:** [#1 P1-P3 ROM grab-and-go](https://github.com/Dadud/unraid-plugin/pull/1), [#2 P4-P9 apps/presets/digest-pinning/ES-DE-removal/docs](https://github.com/Dadud/unraid-plugin/pull/2). §4.6 compatibility matrix populated; P8 digest pinning DONE. |
+| 2026-05-29 | impl | **All repo tracks landed as fork draft PRs.** Den: [#1 DefaultAppLoader harden](https://github.com/Dadud/wolf-den/pull/1) + [#2 Settings overhaul](https://github.com/Dadud/wolf-den/pull/2) (both build). wolf: [#1 socket docs](https://github.com/Dadud/wolf/pull/1), [#2 profiles/update](https://github.com/Dadud/wolf/pull/2), [#3 config get](https://github.com/Dadud/wolf/pull/3), [#4 session metadata](https://github.com/Dadud/wolf/pull/4) (C++ uncompiled). gow: [#1 mount examples](https://github.com/Dadud/gow/pull/1), [#2 RUN_SWAY→true](https://github.com/Dadud/gow/pull/2), [#3 preset CI](https://github.com/Dadud/gow/pull/3). New findings: §4.8 missing session id (blocks #8); G3 validator clean (D9 = defense-in-depth); W3 OpenAPI auto-gen needs bindings regen. |
