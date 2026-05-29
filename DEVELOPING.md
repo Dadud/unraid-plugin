@@ -57,8 +57,20 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 | `install.sh` | Plugin install | GPU detection, writes `gow.cfg`, installs `settings-ui.txz` |
 | `deploy.sh` | User clicks Install in UI | udev rules, appdata dirs, `docker-compose.yml`, containers, retrying boot hook |
 | `uninstall.sh` | Plugin remove | Stops containers, cleans `/boot/config/go`, removes udev rules |
-| `update.sh` | User clicks Update in UI | `docker compose pull && up -d` |
+| `update.sh` | User clicks Update in UI | `docker compose pull && up -d --force-recreate`, re-applies mounts |
 | `vars.sh` | Sourced by all scripts | Shared env vars (`GOW_CFG`, `GOW_PLUGIN`, `DEFAULT_APPDATA`, …) |
+| `utils.sh` | Sourced by install/update | Package name/URL helpers and checksum-verified downloads |
+| `pairing-state.sh` | Sourced by deploy/update | Backup/restore Wolf pairing identity (`config.toml`, `key.pem`, `cert.pem`) |
+| `library-links.sh` | Deploy/update/mount presets | Symlink user library paths under `${APPDATA}/` when they live outside GoW appdata |
+| `apply-mount-presets.sh` / `.py` | Deploy/update/fix | Merge plugin library paths into Wolf app runner mounts in `config.toml` |
+| `detect-paths.sh` | Plugin install | Suggest existing ROM/BIOS/Steam/etc. share paths to pre-fill setup |
+| `repair-esde.sh` | UI Advanced | Restore ES-DE Custom Scripts config and re-apply ROM/BIOS mounts |
+| `cleanup-wolf-sessions.sh` | UI / stop / Fix mounts | Remove exited `Wolf*` session containers that hold memory |
+| `health-check.sh` | CLI | Print stack health; exit code reflects healthy/degraded/unhealthy |
+| `fix-all.sh` | UI "Fix mounts" | Cleanup sessions, re-apply mount presets, restart Wolf |
+| `reset.sh` | UI "Reset to Defaults" | Reset plugin settings to defaults (appdata kept) |
+| `hotfix-page.sh` | Dev | Hot-swap the settings page during development |
+| `apply-ui.sh` | Dev / after plugin update | Re-run `installpkg` on the newest `settings-ui-*.txz` under `/boot/config/plugins/gow/packages/` |
 
 ## Config file
 
@@ -93,7 +105,42 @@ md5sum    settings-ui-<version>.txz | awk '{print $1}' > settings-ui-<version>.t
 
 Update the `<SHA256>` and `<MD5>` fields in `gow.plg` after each rebuild.
 
-During development, serve the `dist/` directory from your local HTTP server and point `gitReleaseURL` there (see above).
+During development, serve the **repo root** (not only `packages/settings-ui/dist`) from your local HTTP server so both `gow-dev.plg`, `scripts/*`, and `dist/settings-ui.txz` are reachable. Point `gitReleaseURL` at `http://<ip>:8888/dist` (see above).
+
+### UI changes not showing on Unraid
+
+The settings page (`gow.page`, `php/*`) is **not** read from `/boot/config/plugins/gow/`. It is installed into `/usr/local/emhttp/plugins/gow/` by `installpkg` when the plugin runs `install.sh`. These actions **do not** refresh the UI:
+
+- Clicking **Update Images** on the GoW dashboard (that only updates Wolf Docker images).
+- Editing files on your PC without rebuilding and reinstalling the txz.
+- Updating only shell scripts on the server (unless you also reinstall the txz).
+
+**Check what is actually installed** (on Unraid as root):
+
+```sh
+grep -c gow-health-card /usr/local/emhttp/plugins/gow/gow.page
+ls -la /usr/local/emhttp/plugins/gow/php/
+ls -lt /boot/config/plugins/gow/packages/settings-ui-*.txz
+```
+
+If `gow-health-card` is missing, the running UI is still an old build. Fix:
+
+1. Rebuild the package (from `packages/settings-ui/root`):
+   ```sh
+   ../../../utils/fmakepkg.sh ../../../dist/settings-ui.txz
+   ```
+2. Serve `dist/settings-ui.txz` from your dev machine (`python3 -m http.server 8888` in the repo root).
+3. On Unraid, either:
+   - `bash /boot/config/plugins/gow/scripts/hotfix-page.sh http://<dev-ip>:8888` (downloads txz and runs `installpkg`), or
+     - Copy `settings-ui.txz` to `/boot/config/plugins/gow/packages/settings-ui-2026.05.30.txz` and run:
+     ```sh
+     bash /boot/config/plugins/gow/scripts/apply-ui.sh
+     ```
+   - Or **Plugins → Games on Whales → Update** after publishing a matching GitHub release (version in `gow.plg` must match the tag that ships `settings-ui.txz`).
+
+4. Hard-refresh the browser (Ctrl+F5). If the page is still wrong, reload nginx: `/etc/rc.d/rc.nginx reload`.
+
+Production installs pull `settings-ui.txz` from the GitHub **release** for the version in `gow.plg`. Bumping `gow.plg` to `2026.05.29` without a `2026.05.29` release tag leaves the plugin update unable to fetch the new txz.
 
 ## Releasing
 

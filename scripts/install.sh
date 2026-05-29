@@ -42,12 +42,40 @@ detect_gpus() {
     done
 }
 
+backfill_library_defaults() {
+    local -A defaults=(
+        [STEAM_LIBRARY]="${DEFAULT_STEAM_LIBRARY}"
+        [GAMES_LIBRARY]="${DEFAULT_GAMES_LIBRARY}"
+        [ROMS_LIBRARY]="${DEFAULT_ROMS_LIBRARY}"
+        [BIOS_LIBRARY]="${DEFAULT_BIOS_LIBRARY}"
+        [MEDIA_LIBRARY]="${DEFAULT_MEDIA_LIBRARY}"
+        [LUTRIS_LIBRARY]="${DEFAULT_LUTRIS_LIBRARY}"
+        [COMPAT_TOOLS_PATH]="${DEFAULT_COMPAT_TOOLS_PATH}"
+    )
+    local key val current
+
+    for key in "${!defaults[@]}"; do
+        val="${defaults[$key]}"
+        if ! grep -q "^${key}=" "$GOW_CFG" 2>/dev/null; then
+            echo "${key}=${val}" >> "$GOW_CFG"
+            info "Added default ${key}=${val}"
+            continue
+        fi
+        current=$(grep "^${key}=" "$GOW_CFG" | tail -1 | cut -d= -f2- | tr -d "'")
+        if [[ -z "${current}" ]]; then
+            sed -i "s|^${key}=.*|${key}=${val}|" "$GOW_CFG"
+            info "Backfilled empty ${key} -> ${val}"
+        fi
+    done
+}
+
 write_initial_cfg() {
     mkdir -p "$GOW_PLUGIN"
 
     # Preserve existing config on reinstall so user settings aren't lost
     if [[ -f "$GOW_CFG" ]]; then
         info "Existing config found at ${GOW_CFG} — preserving"
+        backfill_library_defaults
         return
     fi
 
@@ -61,6 +89,13 @@ WOLF_DEN_PORT=8080
 WOLF_NETWORK_MODE=host
 WOLF_NETWORK_NAME=
 WOLF_NETWORK_IPV4=
+STEAM_LIBRARY=${DEFAULT_STEAM_LIBRARY}
+GAMES_LIBRARY=${DEFAULT_GAMES_LIBRARY}
+ROMS_LIBRARY=${DEFAULT_ROMS_LIBRARY}
+BIOS_LIBRARY=${DEFAULT_BIOS_LIBRARY}
+MEDIA_LIBRARY=${DEFAULT_MEDIA_LIBRARY}
+LUTRIS_LIBRARY=${DEFAULT_LUTRIS_LIBRARY}
+COMPAT_TOOLS_PATH=${DEFAULT_COMPAT_TOOLS_PATH}
 DEPLOYED=false
 EOF
 
@@ -77,11 +112,13 @@ EOF
     else
         info "${#GPU_RENDER_NODES[@]} GPUs detected — user must select one in the settings page"
     fi
+
 }
 
 install_settings_ui() {
     local pkg
-    pkg=$(ls "${GOW_PACKAGE_DIR}"/settings-ui-*.txz 2>/dev/null | tail -1)
+    # Pick newest package by mtime (alphabetical tail can be wrong with -dev suffixes).
+    pkg=$(ls -t "${GOW_PACKAGE_DIR}"/settings-ui-*.txz 2>/dev/null | head -1 || true)
     [[ -n "$pkg" ]] || err "settings-ui package not found in ${GOW_PACKAGE_DIR}"
     info "Installing settings-ui package"
     /sbin/installpkg "$pkg"
