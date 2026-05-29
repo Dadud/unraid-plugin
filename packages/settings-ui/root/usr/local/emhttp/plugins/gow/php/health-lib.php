@@ -176,6 +176,68 @@ function gow_check_rom_mount(array $cfg) {
         'ROMs path set but no app mounts /ROMs yet — use Fix mounts, then relaunch the app.');
 }
 
+// Canonical emulator apps that receive ROM mounts (keep in sync with apply-mount-presets.py).
+function gow_rom_emulator_presets() {
+    return ['EmulationStation', 'RetroArch', 'Pegasus'];
+}
+
+function gow_normalize_preset_title($title) {
+    return preg_replace('/[^a-z0-9]/', '', strtolower((string)$title));
+}
+
+// Map a config.toml app title to a canonical preset name (mirrors apply-mount-presets.py).
+function gow_resolve_preset_title($title) {
+    static $aliases = [
+        'esde' => 'EmulationStation',
+        'emulationstationdesktopedition' => 'EmulationStation',
+        'emustation' => 'EmulationStation',
+        'retroarchra' => 'RetroArch',
+    ];
+    static $canonical = null;
+    if ($canonical === null) {
+        $canonical = [];
+        foreach (gow_rom_emulator_presets() as $name) {
+            $canonical[gow_normalize_preset_title($name)] = $name;
+        }
+        $canonical[gow_normalize_preset_title('Steam')] = 'Steam';
+        $canonical[gow_normalize_preset_title('Lutris')] = 'Lutris';
+        $canonical[gow_normalize_preset_title('Pegasus')] = 'Pegasus';
+        $canonical[gow_normalize_preset_title('RetroArch')] = 'RetroArch';
+        $canonical[gow_normalize_preset_title('EmulationStation')] = 'EmulationStation';
+    }
+    $title = (string)$title;
+    $norm = gow_normalize_preset_title($title);
+    if (isset($canonical[$norm])) {
+        return $canonical[$norm];
+    }
+    if (isset($aliases[$norm])) {
+        return $aliases[$norm];
+    }
+    return null;
+}
+
+function gow_config_app_titles($config_text) {
+    $titles = [];
+    if (!preg_match_all('/^title\s*=\s*["\']([^"\']+)["\']/m', $config_text, $matches)) {
+        return $titles;
+    }
+    foreach ($matches[1] as $title) {
+        $titles[] = $title;
+    }
+    return $titles;
+}
+
+function gow_rom_emulators_in_config($config_text) {
+    $found = [];
+    foreach (gow_config_app_titles($config_text) as $title) {
+        $canonical = gow_resolve_preset_title($title);
+        if ($canonical !== null && in_array($canonical, gow_rom_emulator_presets(), true)) {
+            $found[$canonical] = $title;
+        }
+    }
+    return $found;
+}
+
 // Inspect a host library path for the setup form: does it exist, is it a
 // directory, how many top-level entries, and is it in a fragile location.
 // Pure read-only; never writes. Returns a structured summary for the UI.
@@ -184,9 +246,12 @@ function gow_validate_library_path($path) {
     $out = [
         'path'      => $path,
         'state'     => 'empty',   // empty | missing | not_dir | ok
+        'layout'    => 'empty',   // empty | esde_systems | flat_files | nested_roms | unknown
         'children'  => 0,
+        'systems'   => 0,
         'sample'    => [],
         'warnings'  => [],
+        'hints'     => [],
     ];
     if ($path === '') {
         return $out;
@@ -208,10 +273,58 @@ function gow_validate_library_path($path) {
     }));
     $out['children'] = count($entries);
     $out['sample'] = array_slice($entries, 0, 6);
+
+    // Common mistake: user picked the parent share instead of the ROMs subfolder.
+    foreach (['roms', 'ROMs', 'Roms'] as $subdir) {
+        $nested = $path . '/' . $subdir;
+        if (is_dir($nested) && $out['children'] > 0) {
+            $nested_count = count(array_filter(@scandir($nested) ?: [], function ($e) {
+                return $e !== '.' && $e !== '..';
+            }));
+            if ($nested_count > 0) {
+                $out['warnings'][] = "This folder contains a {$subdir}/ subfolder with content — you may want to select {$nested} instead.";
+                $out['layout'] = 'nested_roms';
+                break;
+            }
+        }
+    }
+
+    $rom_ext = '/\.(zip|7z|rar|chd|cue|bin|iso|pbp|cia|nsp|xci|rvz|wbfs|wad|gcm|nds|3ds)$/i';
+    $system_dirs = 0;
+    $files_at_root = 0;
+    foreach ($entries as $entry) {
+        $full = $path . '/' . $entry;
+        if (is_dir($full)) {
+            $system_dirs++;
+            continue;
+        }
+        if (is_file($full) && preg_match($rom_ext, $entry)) {
+            $files_at_root++;
+        }
+    }
+    $out['systems'] = $system_dirs;
+
+    if ($out['layout'] !== 'nested_roms') {
+        if ($system_dirs >= 1 && $files_at_root === 0) {
+            $out['layout'] = 'esde_systems';
+            $out['hints'][] = 'Looks like an ES-DE-style layout: one subfolder per system (nes/, snes/, …).';
+        } elseif ($files_at_root > 0 && $system_dirs === 0) {
+            $out['layout'] = 'flat_files';
+            $out['warnings'][] = 'ROM files sit directly in this folder — ES-DE expects subfolders per system (e.g. nes/, gba/).';
+        } elseif ($system_dirs > 0 && $files_at_root > 0) {
+            $out['layout'] = 'mixed';
+            $out['hints'][] = 'Mix of system folders and loose ROM files — emulators may only index the subfolders.';
+        } else {
+            $out['layout'] = 'unknown';
+        }
+    }
+
     if ($out['children'] === 0) {
         $out['warnings'][] = 'Folder is empty — emulators will show no games until you add files.';
+    } elseif ($out['layout'] === 'esde_systems' && $system_dirs > 0) {
+        $out['hints'][] = "{$system_dirs} system folder(s) detected — ready for EmulationStation / RetroArch / Pegasus after install.";
     }
-    // Fragile locations: inside appdata/cfg or the plugin flash dir.
+
     if (strpos($path, '/cfg') !== false && strpos($path, 'appdata') !== false) {
         $out['warnings'][] = 'Avoid placing libraries inside appdata/cfg — it holds Wolf config and pairing.';
     }

@@ -24,8 +24,25 @@ APP_PRESETS: dict[str, list[tuple[str, str]]] = {
     "Heroic Games Launcher": [("GAMES", "/games")],
 }
 
+# Alternate titles Wolf/gow may ship for the same app.
+TITLE_ALIASES: dict[str, str] = {
+    "esde": "EmulationStation",
+    "emulationstationdesktopedition": "EmulationStation",
+    "emustation": "EmulationStation",
+    "retroarchra": "RetroArch",
+    "xfce": "Desktop (xfce)",
+    "desktop": "Desktop (xfce)",
+    "xfcedesktop": "Desktop (xfce)",
+    "heroic": "Heroic Games Launcher",
+    "heroicgameslauncher": "Heroic Games Launcher",
+    "prism": "Prismlauncher",
+    "prismlauncher": "Prismlauncher",
+}
+
+# Apps that consume the ROM library (for post-apply hints).
+ROM_EMULATOR_PRESETS = ("EmulationStation", "RetroArch", "Pegasus")
+
 # ES-DE / RetroArch configs often use ~/bioses while GOW mounts at /bioses.
-# Pegasus creates a symlink; duplicate the mount at $HOME for emulator apps.
 HOME_MOUNT_ALIASES: dict[str, list[tuple[str, str]]] = {
     "RetroArch": [("BIOS", "/home/retro/bioses")],
     "Pegasus": [("BIOS", "/home/retro/bioses")],
@@ -35,7 +52,6 @@ HOME_MOUNT_ALIASES: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# Legacy / mistaken destinations from manual edits — replaced by presets above.
 DEPRECATED_DESTINATIONS = {
     "/home/retro/ROMs",
     "/home/retro/bioses",
@@ -46,6 +62,25 @@ DEPRECATED_DESTINATIONS = {
 }
 
 GOW_REQUIRED_BASE = "/dev/input/* /dev/dri/* /dev/nvidia*"
+
+_NORMALIZED_PRESETS = {
+    re.sub(r"[^a-z0-9]", "", name.lower()): name for name in APP_PRESETS
+}
+
+
+def _normalize_title(title: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", title.lower())
+
+
+def resolve_preset_title(title: str) -> str | None:
+    if title in APP_PRESETS:
+        return title
+    norm = _normalize_title(title)
+    if norm in _NORMALIZED_PRESETS:
+        return _NORMALIZED_PRESETS[norm]
+    if norm in TITLE_ALIASES:
+        return TITLE_ALIASES[norm]
+    return None
 
 
 def parse_mount_line(line: str) -> tuple[str, str, str] | None:
@@ -95,6 +130,22 @@ def find_bracket_array(block: str, key: str) -> tuple[int, int] | None:
             if depth == 0:
                 return start, pos + 1
     return None
+
+
+def ensure_mounts_array(block: str) -> tuple[str, tuple[int, int] | None]:
+    span = find_bracket_array(block, "mounts")
+    if span:
+        return block, span
+    if not re.search(r"^\[profiles\.apps\.runner\]", block, flags=re.MULTILINE):
+        return block, None
+    insert_at = len(block)
+    for key in ("env", "devices", "ports", "base_create_json"):
+        match = re.search(rf"^\s*{re.escape(key)}\s*=", block, flags=re.MULTILINE)
+        if match:
+            insert_at = min(insert_at, match.start())
+    prefix = "" if insert_at == 0 or block[insert_at - 1] == "\n" else "\n"
+    block = block[:insert_at] + f"{prefix}mounts = []\n" + block[insert_at:]
+    return block, find_bracket_array(block, "mounts")
 
 
 def merge_mounts(
@@ -147,7 +198,6 @@ def patch_gow_required_devices(block: str, extra_paths: list[str]) -> tuple[str,
         return block, False
 
     required = GOW_REQUIRED_BASE
-    suffix = " " + " ".join(extra_paths)
     new_entries: list[str] = []
     changed = False
     for entry in entries:
@@ -162,7 +212,7 @@ def patch_gow_required_devices(block: str, extra_paths: list[str]) -> tuple[str,
             new_entries.append(entry)
 
     if not any(e.startswith("GOW_REQUIRED_DEVICES=") for e in entries):
-        new_entries.append(f"GOW_REQUIRED_DEVICES={required}{suffix}")
+        new_entries.append(f"GOW_REQUIRED_DEVICES={required} {' '.join(extra_paths)}")
         changed = True
 
     if not changed:
@@ -184,9 +234,12 @@ def load_paths(argv: list[str]) -> dict[str, str]:
 
 
 def desired_for_title(title: str, paths: dict[str, str]) -> list[tuple[str, str, str]]:
+    canonical = resolve_preset_title(title)
+    if canonical is None:
+        return []
     desired: list[tuple[str, str, str]] = []
-    preset = APP_PRESETS.get(title, [])
-    aliases = HOME_MOUNT_ALIASES.get(title, [])
+    preset = APP_PRESETS.get(canonical, [])
+    aliases = HOME_MOUNT_ALIASES.get(canonical, [])
     for cfg_key, dest in preset + aliases:
         host = paths.get(cfg_key, "")
         if host:
@@ -217,7 +270,7 @@ def patch_config(text: str, paths: dict[str, str]) -> tuple[str, int]:
             out.append(block)
             continue
 
-        mounts_span = find_bracket_array(block, "mounts")
+        block, mounts_span = ensure_mounts_array(block)
         if not mounts_span:
             out.append(block)
             continue
@@ -239,31 +292,75 @@ def patch_config(text: str, paths: dict[str, str]) -> tuple[str, int]:
     return "".join(out), updated
 
 
+def rom_emulator_hint(patched: str, paths: dict[str, str]) -> str | None:
+    if not paths.get("ROMS"):
+        return None
+    present: set[str] = set()
+    for match in re.finditer(r'^title\s*=\s*["\']([^"\']+)["\']', patched, flags=re.MULTILINE):
+        canonical = resolve_preset_title(match.group(1))
+        if canonical in ROM_EMULATOR_PRESETS:
+            present.add(canonical)
+    missing = [name for name in ROM_EMULATOR_PRESETS if name not in present]
+    if not missing:
+        return None
+    if ":/ROMs" not in patched:
+        return (
+            "No emulator app in Wolf yet — add EmulationStation, RetroArch, or Pegasus "
+            "in Wolf Den (Apps), then run Fix mounts again."
+        )
+    return (
+        "ROM path is set but these apps are not in your Wolf profile yet: "
+        + ", ".join(missing)
+        + ". Add them in Wolf Den (Apps), then run Fix mounts."
+    )
+
+
 def main() -> int:
-    if len(sys.argv) < 2:
+    argv = sys.argv[1:]
+    dry_run = False
+    if "--dry-run" in argv:
+        dry_run = True
+        argv = [a for a in argv if a != "--dry-run"]
+
+    if not argv:
         print(
-            "Usage: apply-mount-presets.py <config.toml> [ROMS BIOS MEDIA STEAM GAMES LUTRIS COMPAT]",
+            "Usage: apply-mount-presets.py [--dry-run] <config.toml> "
+            "[ROMS BIOS MEDIA STEAM GAMES LUTRIS COMPAT]",
             file=sys.stderr,
         )
         return 2
 
-    cfg_path = Path(sys.argv[1])
+    cfg_path = Path(argv[0])
     if not cfg_path.is_file():
         print(f"Config not found: {cfg_path}", file=sys.stderr)
         return 1
 
-    paths = load_paths(sys.argv[2:])
+    paths = load_paths(argv[1:])
     if not paths:
         print("No library paths configured; skipping mount presets")
         return 0
 
     original = cfg_path.read_text(encoding="utf-8")
     patched, count = patch_config(original, paths)
+    if dry_run:
+        if count:
+            print(f"[dry-run] Would update {count} app runner(s) in {cfg_path}")
+        else:
+            print(f"[dry-run] No app runners need mount preset updates in {cfg_path}")
+        hint = rom_emulator_hint(patched, paths)
+        if hint:
+            print(f"[dry-run] Hint: {hint}", file=sys.stderr)
+        return 0
+
     if count:
         cfg_path.write_text(patched, encoding="utf-8")
         print(f"Applied mount presets to {count} app runner(s) in {cfg_path}")
     else:
         print(f"No app runners needed mount preset updates in {cfg_path}")
+
+    hint = rom_emulator_hint(patched, paths)
+    if hint:
+        print(f"Hint: {hint}", file=sys.stderr)
     return 0
 
 

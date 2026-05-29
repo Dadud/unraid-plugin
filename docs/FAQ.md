@@ -119,6 +119,48 @@ cp -a "$APPDATA/.pairing-backup/"* "$APPDATA/cfg/"
 docker compose -f "$APPDATA/docker-compose.yml" restart wolf wolf-den
 ```
 
+## ROM folder layout (grab-and-go)
+
+The plugin mounts **one host folder** you pick in Setup into EmulationStation,
+RetroArch, and Pegasus at **`/ROMs`** inside the stream. Your files stay on the
+Unraid share; nothing is copied into appdata.
+
+### What to select
+
+Point **ROM library folder** at the directory whose **immediate children are system
+folders**, not loose ROM files:
+
+```text
+/mnt/user/roms/
+  nes/
+    game1.nes
+  snes/
+    game2.sfc
+  gba/
+    ...
+```
+
+Do **not** select a single system folder (for example only `…/roms/nes/`) unless
+you only care about that one platform.
+
+If your library is `…/retrogaming/roms/`, select that inner `roms` folder, not
+the parent `retrogaming` share (the setup form warns when it detects a nested
+`roms/` folder with content).
+
+### What happens on Install
+
+1. The plugin symlinks the path under GoW appdata when needed.
+2. After Wolf starts, **mount presets** add lines like
+   `/mnt/user/roms:/ROMs:rw` to each emulator app in `config.toml`.
+3. Pair Moonlight, launch **EmulationStation** (or RetroArch / Pegasus) — games
+   should appear after ES-DE scans `/ROMs`.
+
+Optional: set **BIOS files** to a separate folder; it is mounted at `/bioses`.
+
+If games are still missing, use **Advanced → Fix mounts** and relaunch the app.
+For broken ES-DE launcher scripts from an older setup, use **Repair ES-DE** (see
+below).
+
 ## ES-DE Custom Scripts and ROM/BIOS library mounts
 
 EmulationStation (ES-DE) in Games on Whales expects shared libraries at fixed paths

@@ -178,6 +178,26 @@ function smart_path_map() {
     ];
 }
 
+function discover_roms_library_path() {
+    $candidates = smart_path_map()['ROMS_LIBRARY'] ?? [];
+    $found = discover_existing_path($candidates);
+    if ($found !== '') {
+        return $found;
+    }
+    foreach (['/mnt/user/retrogaming', '/mnt/user/emulation', '/mnt/user/Emulation'] as $root) {
+        if (!is_dir($root)) {
+            continue;
+        }
+        foreach (['roms', 'ROMs', 'Roms'] as $sub) {
+            $nested = $root . '/' . $sub;
+            if (is_dir($nested)) {
+                return $nested;
+            }
+        }
+    }
+    return '';
+}
+
 function apply_smart_path_defaults(array &$cfg) {
     $changed = [];
     foreach (smart_path_map() as $key => $candidates) {
@@ -185,7 +205,9 @@ function apply_smart_path_defaults(array &$cfg) {
         if ($current !== '' && is_dir($current)) {
             continue;
         }
-        $found = discover_existing_path($candidates);
+        $found = ($key === 'ROMS_LIBRARY')
+            ? discover_roms_library_path()
+            : discover_existing_path($candidates);
         if ($found !== '' && $found !== $current) {
             $cfg[$key] = $found;
             $changed[$key] = $found;
@@ -328,29 +350,20 @@ function library_mount_summary($cfg) {
     return $active;
 }
 
-// Emulator/launcher app titles that apply-mount-presets.py knows how to wire.
-// Kept in sync with APP_PRESETS in scripts/apply-mount-presets.py.
-function gow_preset_titles() {
-    return [
-        'EmulationStation', 'RetroArch', 'Pegasus', 'Steam', 'Lutris',
-        'Prismlauncher', 'Kodi', 'Desktop (xfce)', 'Heroic Games Launcher',
-    ];
-}
-
 // Summarize how the configured ROM library is wired through to app runners.
-// Returns: rom path, symlink display, whether config.toml mounts /ROMs, and
-// which preset-capable app titles are present in config.toml.
 function gow_rom_wiring_summary($cfg) {
     $appdata = rtrim($cfg['APPDATA'] ?? DEFAULT_APPDATA, '/');
     $roms = rtrim(trim($cfg['ROMS_LIBRARY'] ?? ''), '/');
     $summary = [
-        'roms'        => $roms,
-        'symlink'     => $roms !== '' ? gow_library_mount_display($appdata, 'roms', $roms) : '',
-        'toml_mount'  => null,   // null = unknown, true/false once config read
-        'apps'        => [],
-        'sample_line' => '',
+        'roms'              => $roms,
+        'symlink'           => $roms !== '' ? gow_library_mount_display($appdata, 'roms', $roms) : '',
+        'toml_mount'        => null,
+        'rom_emulators'     => [],   // canonical => title in config.toml
+        'rom_emulators_missing' => gow_rom_emulator_presets(),
+        'sample_line'       => '',
     ];
     if ($roms === '') {
+        $summary['rom_emulators_missing'] = [];
         return $summary;
     }
     $cfg_file = $appdata . '/cfg/config.toml';
@@ -362,50 +375,79 @@ function gow_rom_wiring_summary($cfg) {
         return $summary;
     }
     $summary['toml_mount'] = (bool)preg_match('~"[^"]+:(?:/ROMs|/home/retro/ROMs)(?::[a-z]+)?"~', $text);
-    foreach (gow_preset_titles() as $title) {
-        if (preg_match('/^title\s*=\s*["\']' . preg_quote($title, '/') . '["\']/m', $text)) {
-            $summary['apps'][] = $title;
-        }
-    }
+    $summary['rom_emulators'] = gow_rom_emulators_in_config($text);
+    $summary['rom_emulators_missing'] = array_values(array_diff(
+        gow_rom_emulator_presets(),
+        array_keys($summary['rom_emulators'])
+    ));
     if (preg_match('~"([^"]+:(?:/ROMs)(?::[a-z]+)?)"~', $text, $m)) {
         $summary['sample_line'] = $m[1];
     }
     return $summary;
 }
 
-function gow_render_wiring_card($cfg, $wiring) {
+function gow_render_wiring_card($cfg, $wiring, $rom_validation = null) {
     if (($wiring['roms'] ?? '') === '') {
         return;
     }
+    $emulators = $wiring['rom_emulators'] ?? [];
+    $missing = $wiring['rom_emulators_missing'] ?? [];
     ?>
 <div class="gow-card">
-  <div class="gow-title">Library wiring</div>
+  <div class="gow-title">Retro game library</div>
   <table class="gow-kv-table">
     <tr><th>ROMs folder</th><td><?= htmlspecialchars($wiring['symlink'] ?: $wiring['roms']) ?></td></tr>
+    <?php if (is_array($rom_validation) && ($rom_validation['state'] ?? '') === 'ok'): ?>
+    <tr>
+      <th>Layout</th>
+      <td>
+        <?php if (($rom_validation['layout'] ?? '') === 'esde_systems' && ($rom_validation['systems'] ?? 0) > 0): ?>
+          <span class="gow-health-badge healthy"><?= (int)$rom_validation['systems'] ?> system folder(s)</span>
+          <span class="gow-section-note">ES-DE / RetroArch / Pegasus index subfolders as systems.</span>
+        <?php elseif (($rom_validation['layout'] ?? '') === 'flat_files'): ?>
+          <span class="gow-health-badge degraded">loose files at root</span>
+          <span class="gow-section-note">Use one subfolder per system (e.g. <code>nes/</code>, <code>snes/</code>).</span>
+        <?php elseif (($rom_validation['layout'] ?? '') === 'nested_roms'): ?>
+          <span class="gow-health-badge degraded">check path</span>
+          <span class="gow-section-note">You may have selected the parent folder — pick the inner <code>roms/</code> folder.</span>
+        <?php endif; ?>
+      </td>
+    </tr>
+    <?php endif; ?>
     <tr>
       <th>App mounts</th>
       <td>
         <?php if ($wiring['toml_mount'] === true): ?>
-          <span class="gow-health-badge healthy">wired</span>
-          <?php if ($wiring['apps']): ?>
-            <span class="gow-section-note"><?= htmlspecialchars(implode(', ', $wiring['apps'])) ?></span>
+          <span class="gow-health-badge healthy">wired to /ROMs</span>
+          <?php if ($emulators): ?>
+            <span class="gow-section-note"><?= htmlspecialchars(implode(', ', array_values($emulators))) ?></span>
           <?php endif; ?>
         <?php elseif ($wiring['toml_mount'] === false): ?>
           <span class="gow-health-badge degraded">not wired yet</span>
           <span class="gow-section-note">Use Advanced → Fix mounts, then relaunch the app.</span>
         <?php else: ?>
           <span class="gow-health-badge">pending</span>
-          <span class="gow-section-note">Deploy Wolf so config.toml exists, then Fix mounts.</span>
+          <span class="gow-section-note">Install deploys Wolf and applies mounts automatically.</span>
         <?php endif; ?>
       </td>
     </tr>
+    <?php if ($missing && ($wiring['toml_mount'] !== true || count($emulators) < 1)): ?>
+    <tr>
+      <th>Emulator apps</th>
+      <td>
+        <span class="gow-section-note">Not in Wolf profile yet: <?= htmlspecialchars(implode(', ', $missing)) ?>.</span>
+        <span class="gow-section-note">Add them in Wolf Den → Apps (Wolf seeds EmulationStation on first install).</span>
+      </td>
+    </tr>
+    <?php endif; ?>
     <?php if ($wiring['sample_line']): ?>
     <tr><th>Example mount</th><td><code><?= htmlspecialchars($wiring['sample_line']) ?></code></td></tr>
     <?php endif; ?>
   </table>
   <p class="gow-section-note">
-    We do not move your files. ROMs and BIOS stay in place; the plugin only mounts the host
-    folders into the emulator apps. BIOS is a separate folder.
+    Your files stay on the Unraid share. Install binds this folder into EmulationStation, RetroArch,
+    and Pegasus at <code>/ROMs</code> so emulators can scan and launch games. Put BIOS files in a
+    separate BIOS folder (optional but recommended).
   </p>
 </div>
     <?php
@@ -437,11 +479,11 @@ function gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf
     </li>
     <?php if ($has_roms): ?>
     <li class="<?= $rom_wired ? 'done' : '' ?>">
-      Games appear?
+      Games appear in EmulationStation / RetroArch?
       <?php if ($rom_wired): ?>
-        ROMs are wired in. If a system is empty, check your folder layout (<code>ROMs/&lt;system&gt;/</code>).
+        ROMs are mounted at <code>/ROMs</code>. Each system should be a subfolder (e.g. <code>nes/</code>, <code>snes/</code>).
       <?php else: ?>
-        If not, run <strong>Advanced → Fix mounts</strong> and relaunch.
+        Run <strong>Install</strong> (or Advanced → Fix mounts), then relaunch the app from Moonlight.
       <?php endif; ?>
     </li>
     <?php endif; ?>
@@ -878,7 +920,8 @@ $wolf_oom_killed   = container_oom_killed('wolf');
 $stale_sessions    = count_stale_wolf_sessions();
 $host_memory_gib   = host_memory_gib();
 $welcome_notice    = isset($_GET['welcome']);
-$library_open      = !$has_stack;
+// Keep library paths visible during first-time setup (ROM grab-and-go).
+$library_open      = !$has_stack || trim($cfg['ROMS_LIBRARY'] ?? '') === '';
 $health            = $deployed ? gow_run_health_checks($cfg) : gow_run_setup_health_checks($cfg, $gpus);
 $health_summary    = $health['summary'] ?? '';
 $install_ready     = gow_health_ready($health);
@@ -946,8 +989,12 @@ $fixed_notice      = isset($_GET['fixed']);
   .gow-health-badge:not(.healthy):not(.degraded):not(.unhealthy) { background: var(--mild-background-color); color: var(--alt-text-color); border: 1px solid var(--alt-text-color); }
   .gow-checklist { margin: 0; padding-left: 1.4em; line-height: 1.9; }
   .gow-checklist li.done { color: var(--green-800); }
+  .gow-subsection { margin: 16px 0; padding-top: 4px; border-top: 1px solid var(--border-color); }
+  .gow-subsection:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+  .gow-subsection-title { font-weight: 600; margin-bottom: 8px; }
   .gow-rom-validate { margin: -6px 0 14px 0; font-size: 0.9em; color: var(--alt-text-color); }
   .gow-rom-validate.state-missing, .gow-rom-validate.state-not_dir { color: var(--orange-300); }
+  .gow-rom-hint { color: var(--alt-text-color); margin-top: 2px; }
   .gow-rom-warn { color: var(--orange-300); margin-top: 2px; }
   .gow-health-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .gow-health-list .level-ok { color: var(--green-800); }
@@ -1183,7 +1230,7 @@ $fixed_notice      = isset($_GET['fixed']);
   </table>
 </div>
 
-<?php gow_render_wiring_card($cfg, $rom_wiring); ?>
+<?php gow_render_wiring_card($cfg, $rom_wiring, $rom_validation); ?>
 
 <?php gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf_den_url, $rom_wiring); ?>
 
@@ -1316,26 +1363,55 @@ $fixed_notice      = isset($_GET['fixed']);
     <details class="gow-details" id="gow-library-details"<?= $library_open ? ' open' : '' ?>>
       <summary>Library &amp; game folders<span class="gow-details-hint">ROMs, Steam, Lutris…</span></summary>
       <div class="gow-details-body">
-        <p class="gow-section-note">Pick a share from the dropdown, then click the path field or folder icon to browse subfolders. Wolf always uses paths under your GoW appdata folder; if you choose a folder elsewhere, the plugin symlinks it there on install.</p>
+        <p class="gow-section-note">Pick a share from the dropdown, then click the path field or folder icon to browse subfolders. If a library lives outside GoW appdata, the plugin symlinks it under appdata on install — your files are never moved.</p>
 
-        <?php
-          gow_path_field('roms_library', 'roms_library', 'ROMs', $cfg['ROMS_LIBRARY'], $pick_root);
-          if (($rom_validation['state'] ?? 'empty') !== 'empty'):
-        ?>
-        <div class="gow-rom-validate state-<?= htmlspecialchars($rom_validation['state']) ?>">
-          <?php if ($rom_validation['state'] === 'ok'): ?>
-            <strong><?= (int)$rom_validation['children'] ?></strong> top-level item(s)
-            <?php if (!empty($rom_validation['sample'])): ?>
-              — <?= htmlspecialchars(implode(', ', $rom_validation['sample'])) ?><?= $rom_validation['children'] > count($rom_validation['sample']) ? '…' : '' ?>
+        <div class="gow-subsection">
+          <div class="gow-subsection-title">Retro game library (ES-DE, RetroArch, Pegasus)</div>
+          <p class="gow-help">Choose the folder that <strong>contains your system subfolders</strong> (for example <code>nes/</code>, <code>snes/</code>, <code>gba/</code>), not individual ROM files. On install we mount it at <code>/ROMs</code> inside the emulator apps so games show up on first launch.</p>
+          <?php
+            gow_path_field(
+                'roms_library',
+                'roms_library',
+                'ROM library folder',
+                $cfg['ROMS_LIBRARY'],
+                $pick_root,
+                'Typical Unraid path: /mnt/user/roms'
+            );
+            if (($rom_validation['state'] ?? 'empty') !== 'empty'):
+          ?>
+          <div class="gow-rom-validate state-<?= htmlspecialchars($rom_validation['state']) ?>">
+            <?php if ($rom_validation['state'] === 'ok'): ?>
+              <strong><?= (int)$rom_validation['children'] ?></strong> top-level item(s)
+              <?php if (!empty($rom_validation['sample'])): ?>
+                — <?= htmlspecialchars(implode(', ', $rom_validation['sample'])) ?><?= $rom_validation['children'] > count($rom_validation['sample']) ? '…' : '' ?>
+              <?php endif; ?>
+              <?php if (($rom_validation['systems'] ?? 0) > 0): ?>
+                <span class="gow-rom-hint"> · <?= (int)$rom_validation['systems'] ?> look like system folders</span>
+              <?php endif; ?>
             <?php endif; ?>
+            <?php foreach ($rom_validation['hints'] ?? [] as $h): ?>
+              <div class="gow-rom-hint"><?= htmlspecialchars($h) ?></div>
+            <?php endforeach; ?>
+            <?php foreach ($rom_validation['warnings'] as $w): ?>
+              <div class="gow-rom-warn"><?= htmlspecialchars($w) ?></div>
+            <?php endforeach; ?>
+          </div>
           <?php endif; ?>
-          <?php foreach ($rom_validation['warnings'] as $w): ?>
-            <div class="gow-rom-warn"><?= htmlspecialchars($w) ?></div>
-          <?php endforeach; ?>
+          <?php
+            gow_path_field(
+                'bios_library',
+                'bios_library',
+                'BIOS files (optional)',
+                $cfg['BIOS_LIBRARY'],
+                $pick_root,
+                'System BIOS files — mounted at /bioses for emulators that need them.'
+            );
+          ?>
         </div>
-        <?php endif; ?>
+
+        <div class="gow-subsection">
+          <div class="gow-subsection-title">Other libraries</div>
         <?php
-          gow_path_field('bios_library', 'bios_library', 'BIOS files', $cfg['BIOS_LIBRARY'], $pick_root);
           gow_path_field('steam_library', 'steam_library', 'Steam', $cfg['STEAM_LIBRARY'], $pick_root);
           gow_path_field('games_library', 'games_library', 'PC games', $cfg['GAMES_LIBRARY'], $pick_root);
           gow_path_field('lutris_library', 'lutris_library', 'Lutris data', $cfg['LUTRIS_LIBRARY'], $pick_root,
@@ -1343,6 +1419,7 @@ $fixed_notice      = isset($_GET['fixed']);
           gow_path_field('media_library', 'media_library', 'Media', $cfg['MEDIA_LIBRARY'], $pick_root);
           gow_path_field('compat_tools_path', 'compat_tools_path', 'Compatibility tools', $cfg['COMPAT_TOOLS_PATH'], $pick_root);
         ?>
+        </div>
       </div>
     </details>
 

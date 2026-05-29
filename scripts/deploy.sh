@@ -603,6 +603,10 @@ if [[ -f "${APPDATA}/cfg/config.toml" ]]; then
         info "Restarting Wolf so app runner mount presets take effect..."
         docker compose -f "$COMPOSE_FILE" restart wolf
     fi
+    if [[ -n "${ROMS_LIBRARY:-}" ]]; then
+        info "ROM library: ${ROMS_LIBRARY} → /ROMs in EmulationStation / RetroArch / Pegasus"
+        info "After pairing Moonlight, launch EmulationStation — games should appear if folders are organized per system (e.g. nes/, snes/)."
+    fi
 else
     warn "Wolf config not created yet; configure library paths and click Install again if app mounts are missing"
 fi
