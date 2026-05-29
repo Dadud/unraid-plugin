@@ -29,16 +29,19 @@ emit_if_dir APPDATA \
     /mnt/cache/appdata/gow
 
 emit_if_dir ROMS_LIBRARY \
+    /mnt/user/games/roms \
     /mnt/user/roms \
     /mnt/user/ROMs \
     /mnt/user/retrogaming/roms
 
 emit_if_dir BIOS_LIBRARY \
+    /mnt/user/games/bioses \
     /mnt/user/bioses \
     /mnt/user/bios \
     /mnt/user/retrogaming/bios
 
 emit_if_dir STEAM_LIBRARY \
+    /mnt/user/games/steam \
     /mnt/user/steam \
     /mnt/cache/steam
 
@@ -47,10 +50,12 @@ emit_if_dir GAMES_LIBRARY \
     /mnt/user/Games
 
 emit_if_dir MEDIA_LIBRARY \
+    /mnt/user/games/media \
     /mnt/user/media \
     /mnt/user/Media
 
 emit_if_dir LUTRIS_LIBRARY \
+    /mnt/user/games/lutris \
     /mnt/user/appdata/gow/lutris \
     /mnt/user/appdata/lutris \
     /mnt/cache/appdata/gow/lutris
