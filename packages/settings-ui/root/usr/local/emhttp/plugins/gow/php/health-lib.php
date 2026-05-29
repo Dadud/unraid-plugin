@@ -136,11 +136,89 @@ function gow_run_health_checks(array $cfg) {
         $stale === 0 ? '' : "{$stale} exited — use Cleanup stale sessions."
     );
 
+    $rom_check = gow_check_rom_mount($cfg);
+    if ($rom_check !== null) {
+        $checks[] = $rom_check;
+    }
+
     return [
         'summary' => gow_health_summary($checks),
         'checks'  => $checks,
         'at'      => gmdate('c'),
     ];
+}
+
+// If a ROMs library is configured, verify that Wolf's config.toml actually
+// mounts a host ROM path into an emulator app runner. Mounting only at the
+// Wolf service layer does NOT expose ROMs to session containers — the host
+// path must appear in a [[profiles.apps]] mounts array (see apply-mount-presets).
+// Returns a health item, or null when no ROMs library is configured.
+function gow_check_rom_mount(array $cfg) {
+    $roms = trim($cfg['ROMS_LIBRARY'] ?? '');
+    if ($roms === '') {
+        return null;
+    }
+    $appdata = rtrim($cfg['APPDATA'] ?? '/mnt/user/appdata/gow', '/');
+    $cfg_file = $appdata . '/cfg/config.toml';
+    if (!is_readable($cfg_file)) {
+        return gow_health_item('warn', 'ROM library wired into apps',
+            'config.toml not readable yet — deploy Wolf, then run Fix mounts.');
+    }
+    $text = file_get_contents($cfg_file);
+    if ($text === false) {
+        return gow_health_item('warn', 'ROM library wired into apps', 'Could not read config.toml.');
+    }
+    // Any app runner mount whose container destination is /ROMs (or ~/ROMs).
+    if (preg_match('~"[^"]+:(?:/ROMs|/home/retro/ROMs)(?::[a-z]+)?"~', $text)) {
+        return gow_health_item('ok', 'ROM library wired into apps', 'EmulationStation/RetroArch mount /ROMs.');
+    }
+    return gow_health_item('warn', 'ROM library wired into apps',
+        'ROMs path set but no app mounts /ROMs yet — use Fix mounts, then relaunch the app.');
+}
+
+// Inspect a host library path for the setup form: does it exist, is it a
+// directory, how many top-level entries, and is it in a fragile location.
+// Pure read-only; never writes. Returns a structured summary for the UI.
+function gow_validate_library_path($path) {
+    $path = rtrim(trim((string)$path), '/');
+    $out = [
+        'path'      => $path,
+        'state'     => 'empty',   // empty | missing | not_dir | ok
+        'children'  => 0,
+        'sample'    => [],
+        'warnings'  => [],
+    ];
+    if ($path === '') {
+        return $out;
+    }
+    if (!file_exists($path)) {
+        $out['state'] = 'missing';
+        $out['warnings'][] = 'Path does not exist yet — it will be created empty on install.';
+        return $out;
+    }
+    if (!is_dir($path)) {
+        $out['state'] = 'not_dir';
+        $out['warnings'][] = 'Path is not a directory.';
+        return $out;
+    }
+    $out['state'] = 'ok';
+    $entries = @scandir($path) ?: [];
+    $entries = array_values(array_filter($entries, function ($e) {
+        return $e !== '.' && $e !== '..';
+    }));
+    $out['children'] = count($entries);
+    $out['sample'] = array_slice($entries, 0, 6);
+    if ($out['children'] === 0) {
+        $out['warnings'][] = 'Folder is empty — emulators will show no games until you add files.';
+    }
+    // Fragile locations: inside appdata/cfg or the plugin flash dir.
+    if (strpos($path, '/cfg') !== false && strpos($path, 'appdata') !== false) {
+        $out['warnings'][] = 'Avoid placing libraries inside appdata/cfg — it holds Wolf config and pairing.';
+    }
+    if (strncmp($path, '/boot/', 6) === 0) {
+        $out['warnings'][] = 'Avoid the USB flash (/boot) for libraries — it is small and slow.';
+    }
+    return $out;
 }
 
 function gow_health_ready(array $health) {
