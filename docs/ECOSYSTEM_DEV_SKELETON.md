@@ -231,9 +231,22 @@ Encoders / HDR / resolution / multi-GPU `render_node` are hardcoded-empty in `Ap
 ### 4.6 Version-skew / compatibility (stability)
 
 Rolling `:stable`/`:edge` tags + alpha bindings = real drift risk (already bit: wolf #357). **Roadmap:**
-- Plugin: allow pinning image digests in `gow.cfg`; record deployed digests; "update available" vs blind pull.
-- Den: surface effective wolf image + bindings version (D1).
-- Maintain a small **compatibility matrix** (wolf image ↔ bindings ↔ Den ↔ plugin) in docs.
+- Plugin: allow pinning image digests in `gow.cfg`; record deployed digests; "update available" vs blind pull. — **DONE** in plugin PR #2 (P8): `WOLF_IMAGE`/`WOLF_DEN_IMAGE` configurable, digests recorded to `cfg/.image-digests`, surfaced in Status.
+- Den: surface effective wolf image + bindings version (D1, in Den Settings overhaul).
+- Maintain a small **compatibility matrix** (wolf image ↔ bindings ↔ Den ↔ plugin) — table below.
+
+**Compatibility matrix (known-good as of 2026-05-29).** Update each row when a component is bumped; a column changing without the row re-verified = suspect.
+
+| Component | Pin / version | Where set | Notes |
+|-----------|---------------|-----------|-------|
+| Wolf image | `ghcr.io/games-on-whales/wolf:stable` | plugin compose / `WOLF_IMAGE` | rolling; pin by digest for reproducibility |
+| Wolf Den image | `ghcr.io/games-on-whales/wolf-den:stable` | plugin compose / `WOLF_DEN_IMAGE` | rolling; pin by digest |
+| Wolf .NET bindings | `0.1.0-alpha` | `WolfLeash.csproj` (dev-improvements) | stable Den pinned `0.0.2-alpha` → drift |
+| Wolf Den base branch | `dev-improvements` | this repo set | ahead of `stable` |
+| Tomlyn (Den TOML) | `0.20.0` | `WolfLeash.csproj` | used by `DefaultAppLoader` + Settings server tab |
+| Unraid plugin | `2026.05.31` | `gow.plg` / `vars.sh` | adds digest pinning (P8) |
+
+**Rule of thumb:** any Wolf API change → bump bindings (W3) → bump Den `csproj` (D7) → re-verify this table → consider pinning the plugin to the new Wolf digest.
 
 ### 4.7 Bindings
 
@@ -274,3 +287,4 @@ The in-stream **end-user** launcher; **Godot/C#** (`src/`, `config.toml`, `Skerg
 |------|--------|--------|
 | 2026-05-29 | — | Initial skeleton from E2E audit + multi-repo plan |
 | 2026-05-29 | — | Opus review: full repo map; wolf-ui (research-only) + wolfmanager (stale/ignore); Den base→dev-improvements, D6 done upstream, +D9; version-skew §4.6; configurability §4.4; cross-platform §4.5; stability bugs §2.3 |
+| 2026-05-29 | impl | Fork remotes wired (gh `Dadud`); Den WIP reset to `dev-improvements` (backup ref). **Plugin PRs opened on fork:** [#1 P1-P3 ROM grab-and-go](https://github.com/Dadud/unraid-plugin/pull/1), [#2 P4-P9 apps/presets/digest-pinning/ES-DE-removal/docs](https://github.com/Dadud/unraid-plugin/pull/2). §4.6 compatibility matrix populated; P8 digest pinning DONE. Den/wolf/gow draft branches in progress. |
