@@ -74,7 +74,7 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 | `library-links.sh` | Deploy/update/mount presets | Symlink user library paths under `${APPDATA}/` when they live outside GoW appdata |
 | `wolf-api.sh` | Other scripts | `curl` helpers for Wolf's Unix-socket REST API (`/api/v1/*`) |
 | `apply-mount-presets.sh` / `.py` | Deploy/update/fix | Apply library mounts via Wolf API when `${APPDATA}/run/wolf.sock` is up, else patch `config.toml` |
-| `detect-paths.sh` | Plugin install | Suggest existing ROM/BIOS/Steam/etc. share paths to pre-fill setup |
+| `detect-paths.sh` | `install.sh` (first cfg) | Suggest existing ROM/BIOS/Steam/etc. share paths when folders exist |
 | `repair-esde.sh` | UI Advanced | Restore ES-DE Custom Scripts config and re-apply ROM/BIOS mounts |
 | `cleanup-wolf-sessions.sh` | UI / stop / Fix mounts | Remove exited `Wolf*` session containers that hold memory |
 | `health-check.sh` | CLI | Print stack health; exit code reflects healthy/degraded/unhealthy |
@@ -95,6 +95,9 @@ BIOS_LIBRARY=/mnt/user/games/bioses
 STEAM_LIBRARY=/mnt/user/games/steam
 GAMES_LIBRARY=/mnt/user/games
 LUTRIS_LIBRARY=/mnt/user/games/lutris
+WOLF_IMAGE=ghcr.io/games-on-whales/wolf:stable
+WOLF_DEN_IMAGE=ghcr.io/games-on-whales/wolf-den:stable
+WOLF_ENCODER_NODE=
 RENDER_NODE=/dev/dri/renderD128
 GPU_VENDOR=NVIDIA
 GPU_NAME=RTX 3090
@@ -161,7 +164,7 @@ Production installs pull `settings-ui.txz` from the GitHub **release** for the v
 
 ## Stacked PR workflow (fork)
 
-Active feature work is split into four branches on top of commit `31222d6` (2026.05.30 lean baseline). Merge in order:
+Active feature work is split into four branches on top of `games-on-whales/unraid-plugin` `main`. Merge in order:
 
 | PR | Branch | Contents |
 |----|--------|----------|
