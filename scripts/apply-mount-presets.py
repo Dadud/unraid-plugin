@@ -24,6 +24,47 @@ APP_PRESETS: dict[str, list[tuple[str, str]]] = {
     "Heroic Games Launcher": [("GAMES", "/games")],
 }
 
+# Alternate titles Wolf/gow may ship for the same app. Mapped to the canonical
+# APP_PRESETS key so renamed presets still get their mounts. Compared after
+# normalization (lowercased, non-alphanumerics stripped).
+TITLE_ALIASES: dict[str, str] = {
+    "esde": "EmulationStation",
+    "emulationstationdesktopedition": "EmulationStation",
+    "emustation": "EmulationStation",
+    "retroarchra": "RetroArch",
+    "xfce": "Desktop (xfce)",
+    "desktop": "Desktop (xfce)",
+    "xfcedesktop": "Desktop (xfce)",
+    "heroic": "Heroic Games Launcher",
+    "heroicgameslauncher": "Heroic Games Launcher",
+    "prism": "Prismlauncher",
+    "prismlauncher": "Prismlauncher",
+}
+
+
+def _normalize_title(title: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", title.lower())
+
+
+# Precomputed normalized lookup of canonical preset titles.
+_NORMALIZED_PRESETS = {_normalize_title(name): name for name in APP_PRESETS}
+
+
+def resolve_preset_title(title: str) -> str | None:
+    """Map a config.toml app title to a canonical APP_PRESETS key.
+
+    Exact match wins, then alias table, then normalized (case/space/punct
+    insensitive) match. Returns None when no preset is known for the title.
+    """
+    if title in APP_PRESETS:
+        return title
+    norm = _normalize_title(title)
+    if norm in _NORMALIZED_PRESETS:
+        return _NORMALIZED_PRESETS[norm]
+    if norm in TITLE_ALIASES:
+        return TITLE_ALIASES[norm]
+    return None
+
 # ES-DE / RetroArch configs often use ~/bioses while GOW mounts at /bioses.
 # Pegasus creates a symlink; duplicate the mount at $HOME for emulator apps.
 HOME_MOUNT_ALIASES: dict[str, list[tuple[str, str]]] = {
@@ -184,9 +225,12 @@ def load_paths(argv: list[str]) -> dict[str, str]:
 
 
 def desired_for_title(title: str, paths: dict[str, str]) -> list[tuple[str, str, str]]:
+    canonical = resolve_preset_title(title)
+    if canonical is None:
+        return []
     desired: list[tuple[str, str, str]] = []
-    preset = APP_PRESETS.get(title, [])
-    aliases = HOME_MOUNT_ALIASES.get(title, [])
+    preset = APP_PRESETS.get(canonical, [])
+    aliases = HOME_MOUNT_ALIASES.get(canonical, [])
     for cfg_key, dest in preset + aliases:
         host = paths.get(cfg_key, "")
         if host:
@@ -240,25 +284,40 @@ def patch_config(text: str, paths: dict[str, str]) -> tuple[str, int]:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
+    argv = sys.argv[1:]
+    dry_run = False
+    if "--dry-run" in argv:
+        dry_run = True
+        argv = [a for a in argv if a != "--dry-run"]
+
+    if not argv:
         print(
-            "Usage: apply-mount-presets.py <config.toml> [ROMS BIOS MEDIA STEAM GAMES LUTRIS COMPAT]",
+            "Usage: apply-mount-presets.py [--dry-run] <config.toml> "
+            "[ROMS BIOS MEDIA STEAM GAMES LUTRIS COMPAT]",
             file=sys.stderr,
         )
         return 2
 
-    cfg_path = Path(sys.argv[1])
+    cfg_path = Path(argv[0])
     if not cfg_path.is_file():
         print(f"Config not found: {cfg_path}", file=sys.stderr)
         return 1
 
-    paths = load_paths(sys.argv[2:])
+    paths = load_paths(argv[1:])
     if not paths:
         print("No library paths configured; skipping mount presets")
         return 0
 
     original = cfg_path.read_text(encoding="utf-8")
     patched, count = patch_config(original, paths)
+    if dry_run:
+        if count:
+            print(f"[dry-run] Would update {count} app runner(s) in {cfg_path}")
+            if patched != original:
+                print("[dry-run] Diff preview omitted; re-run without --dry-run to apply.")
+        else:
+            print(f"[dry-run] No app runners need mount preset updates in {cfg_path}")
+        return 0
     if count:
         cfg_path.write_text(patched, encoding="utf-8")
         print(f"Applied mount presets to {count} app runner(s) in {cfg_path}")

@@ -135,35 +135,42 @@ your Unraid share paths (for example `/mnt/user/roms:/ROMs:rw`). Mounting folder
 only into the Wolf container at `/etc/wolf/roms` does **not** expose them to
 ES-DE, Pegasus, or RetroArch.
 
+### Two layers: host mounts vs. ES-DE client state
+
+Getting games to show up involves two independent layers:
+
+1. **Host mounts (plugin scope).** The plugin makes your Unraid share visible to
+   the emulator app by writing `…:/ROMs:rw` into Wolf's `config.toml` app runner.
+   The plugin owns this layer. Use **Advanced → Fix mounts** if `/ROMs` is not
+   wired (the dashboard "Library wiring" card shows the current state).
+2. **ES-DE client state (emulator/image scope, *not* plugin scope).** ES-DE seeds
+   its Custom Scripts platform and writes `es_settings.xml` on first run, stored at:
+
+   ```text
+   /mnt/user/appdata/gow/<client-id>/EmulationStation/ES-DE/
+   ```
+
+   If an earlier setup wrote a bad ROM path into `es_settings.xml`, ES-DE keeps
+   using it. **This is internal emulator state and the plugin deliberately does not
+   edit it** — repairing app-internal config from the host is fragile and easy to
+   get wrong across image updates.
+
 ### Custom Scripts missing or emulators won't launch
 
-ES-DE seeds its **Custom Scripts** platform (the launcher entries for Dolphin,
-RetroArch, RPCS3, etc.) only on first run. Wolf keeps that state under:
+Once `/ROMs` is correctly mounted (layer 1 above), fix ES-DE's own state from
+inside the app rather than from the host:
 
-```text
-/mnt/user/appdata/gow/<client-id>/EmulationStation/ES-DE/
-```
+- In ES-DE: **Menu → Other Settings → ROM Directory**, point it at `/ROMs`, then
+  reload. ES-DE recreates `es_systems.xml` / Custom Scripts for the detected
+  systems.
+- If ES-DE state is badly corrupted, remove the client's
+  `…/EmulationStation/ES-DE/` folder and relaunch so the image reseeds defaults.
+- Lay your ROMs out as `/ROMs/<system>/…` (for example `/ROMs/snes/…`) so ES-DE's
+  systems are detected.
 
-If an earlier setup wrote bad paths, or `es_settings.xml` already existed with the
-wrong ROM folder, the stock launcher config may never appear again.
-
-**Fix from the plugin UI:** Settings → Games on Whales → Advanced → **Repair ES-DE**.
-
-That action:
-
-1. Restores `es_systems.xml`, `gamelist.xml`, and critical `es_settings.xml`
-   values from the ES-DE image.
-2. Re-applies ROM/BIOS/media mount presets in `config.toml`.
-3. Restarts Wolf so the next ES-DE session uses the corrected mounts.
-
-**Fix from the shell:**
-
-```bash
-bash /boot/config/plugins/gow/scripts/repair-esde.sh
-```
-
-Launch EmulationStation once from Moonlight after repair so ES-DE reloads the
-restored platform.
+> The plugin's older "Repair ES-DE" action was removed: editing an emulator's
+> internal config from the host belongs in the ES-DE image / upstream `gow`, not
+> in the host installer. See the ecosystem dev skeleton for the upstream tracking.
 
 ## Health check
 
@@ -300,6 +307,38 @@ Restart Wolf after editing (`docker compose -f /mnt/user/appdata/gow/docker-comp
 `JAVA_MAX_MEM` caps the JVM heap; `mem_limit` is the hard container ceiling.
 Keep `mem_limit` a couple of GiB above `JAVA_MAX_MEM` to leave room for the JVM
 and native memory.
+
+## Wolf management socket (Wolf ↔ Wolf Den)
+
+Wolf Den talks to Wolf over a Unix socket, not a TCP port. The plugin shares it
+through a Docker volume so both containers see the same socket:
+
+| Where | Path |
+|-------|------|
+| Plugin compose (this repo) | `wolf-socket` volume mounted at `/tmp/sockets`, socket at `/tmp/sockets/wolf.sock` |
+| Wolf Den env | `WOLF_SOCKET_PATH=/tmp/sockets/wolf.sock` |
+| Wolf upstream default | `$XDG_RUNTIME_DIR/wolf.sock` (often `/var/run/wolf/wolf.sock`) |
+
+If Wolf Den shows "cannot reach Wolf", confirm both containers mount the same
+`wolf-socket` volume and that `WOLF_SOCKET_PATH` points at `/tmp/sockets/wolf.sock`.
+The socket is **not** exposed on the network; only Wolf Den (same host) uses it.
+
+## Pinning Wolf / Wolf Den image versions
+
+By default the plugin runs the rolling `:stable` images. For a reproducible
+install (so an upstream change can't shift your setup unexpectedly), pin a
+specific digest. After a deploy/update the resolved digests are recorded at
+`…/appdata/gow/cfg/.image-digests` and shown in the dashboard **Status** card.
+
+To pin, copy a digest into `gow.cfg`:
+
+```bash
+# /boot/config/plugins/gow/gow.cfg
+WOLF_IMAGE=ghcr.io/games-on-whales/wolf@sha256:<digest>
+WOLF_DEN_IMAGE=ghcr.io/games-on-whales/wolf-den@sha256:<digest>
+```
+
+Then **Deploy** again. Leave them at `…:stable` to keep tracking the latest build.
 
 ## Managing Wolf apps
 

@@ -43,6 +43,15 @@ prepare_pairing_state
 info "Recreating stack with updated images..."
 docker compose -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans
 
+# Refresh recorded image digests so the dashboard reflects what is now running.
+{
+    echo "# Resolved image digests recorded at update time."
+    echo "# Pin an install by copying a digest into WOLF_IMAGE / WOLF_DEN_IMAGE in gow.cfg."
+    echo "wolf=$(docker inspect --format '{{index .RepoDigests 0}}' wolf 2>/dev/null || echo unknown)"
+    echo "wolf-den=$(docker inspect --format '{{index .RepoDigests 0}}' wolf-den 2>/dev/null || echo unknown)"
+    echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "${APPDATA}/cfg/.image-digests" 2>/dev/null || warn "Could not record image digests"
+
 verify_pairing_state
 
 if [[ -x "$(dirname "$0")/cleanup-wolf-sessions.sh" ]]; then

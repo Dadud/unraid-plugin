@@ -27,6 +27,7 @@ function gow_cfg_line_is_skippable($line) {
     return $line === '' || $line[0] === '#';
 }
 
+define('GOW_PLUGIN_VERSION', '2026.05.31');
 define('GOW_CFG',        '/boot/config/plugins/gow/gow.cfg');
 define('GOW_SCRIPT_DIR', '/boot/config/plugins/gow/scripts');
 define('DEFAULT_CFG',    '/usr/local/emhttp/plugins/gow/default.cfg');
@@ -450,6 +451,118 @@ function gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf
     <?php
 }
 
+// Read-only summary of the apps Wolf knows about, parsed from config.toml.
+// Returns a list of [title, image, mount_count]. Never writes.
+function gow_apps_summary($cfg) {
+    $appdata = rtrim($cfg['APPDATA'] ?? DEFAULT_APPDATA, '/');
+    $cfg_file = $appdata . '/cfg/config.toml';
+    if (!is_readable($cfg_file)) {
+        return null;
+    }
+    $text = file_get_contents($cfg_file);
+    if ($text === false) {
+        return [];
+    }
+    $apps = [];
+    $blocks = preg_split('/(?=^\[\[profiles\.apps\]\])/m', $text);
+    foreach ($blocks as $block) {
+        if (strpos(ltrim($block), '[[profiles.apps]]') !== 0) {
+            continue;
+        }
+        if (!preg_match('/^title\s*=\s*["\']([^"\']+)["\']/m', $block, $tm)) {
+            continue;
+        }
+        $title = $tm[1];
+        $image = '';
+        if (preg_match('/^\s*image\s*=\s*["\']([^"\']+)["\']/m', $block, $im)) {
+            $image = $im[1];
+        }
+        $mounts = 0;
+        if (preg_match('/^\s*mounts\s*=\s*\[(.*?)\]/ms', $block, $mm)) {
+            $mounts = preg_match_all('/"[^"]+"/', $mm[1]);
+        }
+        $apps[] = [$title, $image, (int)$mounts];
+    }
+    return $apps;
+}
+
+// Read deploy-time resolved image digests (written by deploy.sh) so the user
+// can see exactly what is running and copy a digest to pin a reproducible install.
+function gow_image_digests($cfg) {
+    $appdata = rtrim($cfg['APPDATA'] ?? DEFAULT_APPDATA, '/');
+    $file = $appdata . '/cfg/.image-digests';
+    $out = ['wolf' => '', 'wolf-den' => ''];
+    if (!is_readable($file)) {
+        return $out;
+    }
+    foreach (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        if (strpos($line, '=') === false || $line[0] === '#') {
+            continue;
+        }
+        [$k, $v] = explode('=', $line, 2);
+        $k = trim($k);
+        if (isset($out[$k])) {
+            $out[$k] = trim($v);
+        }
+    }
+    return $out;
+}
+
+// Shorten a repo digest (repo@sha256:abcd...) to a glanceable form.
+function gow_short_digest($digest) {
+    if ($digest === '' || $digest === 'unknown') {
+        return '';
+    }
+    if (preg_match('/@sha256:([0-9a-f]{12})/', $digest, $m)) {
+        return 'sha256:' . $m[1] . '…';
+    }
+    return $digest;
+}
+
+function gow_render_apps_card($apps) {
+    if ($apps === null) {
+        return;
+    }
+    ?>
+<div class="gow-card">
+  <div class="gow-title">Apps</div>
+  <?php if (empty($apps)): ?>
+    <p class="gow-section-note">No apps found in config.toml yet.</p>
+  <?php else: ?>
+  <table class="gow-kv-table">
+    <tr><th>App</th><th>Mounts</th></tr>
+    <?php foreach ($apps as $app): ?>
+    <tr>
+      <th style="font-weight:600"><?= htmlspecialchars($app[0]) ?>
+        <?php if ($app[1] !== ''): ?><div class="gow-section-note" style="margin:0"><code><?= htmlspecialchars($app[1]) ?></code></div><?php endif; ?>
+      </th>
+      <td><?= (int)$app[2] ?></td>
+    </tr>
+    <?php endforeach; ?>
+  </table>
+  <p class="gow-section-note">Add, edit, and reorder apps in <strong>Wolf Den</strong>. This list is read-only.</p>
+  <?php endif; ?>
+</div>
+    <?php
+}
+
+// Clarify the division of responsibility so users know where to change things.
+function gow_render_responsibility_explainer($wolf_den_url) {
+    ?>
+<details class="gow-details">
+  <summary>Which tool do I use? Plugin vs Wolf Den</summary>
+  <div class="gow-details-body">
+    <table class="gow-kv-table">
+      <tr><th>This plugin (host)</th><td>GPU, appdata, library folders, networking, deploy/update, health.</td></tr>
+      <tr><th>Wolf Den (web)<?php if ($wolf_den_url): ?> <a class="gow-btn-link" href="<?= htmlspecialchars($wolf_den_url) ?>" target="_blank">open</a><?php endif; ?></th>
+          <td>Moonlight pairing, adding/editing apps, profiles, clients, app covers.</td></tr>
+      <tr><th>Moonlight (client)</th><td>Connecting to the stream and launching apps on your device.</td></tr>
+    </table>
+  </div>
+</details>
+    <?php
+}
+
 function network_summary($mode, $name, $ipv4) {
     if ($mode === 'custom') {
         $label = $name !== '' ? $name : 'custom network';
@@ -667,6 +780,7 @@ function has_mdns_conflict() {
     return $has_avahi && $has_wolf;
 }
 
+define('FAQ_URL', 'https://github.com/games-on-whales/unraid-plugin/blob/main/docs/FAQ.md');
 define('FAQ_MODESET_URL', 'https://github.com/games-on-whales/unraid-plugin/blob/main/docs/FAQ.md#nvidia-wayland-support-nvidia_drmmodeset');
 define('FAQ_MDNS_URL', 'https://github.com/games-on-whales/unraid-plugin/blob/main/docs/FAQ.md#moonlight-discovery-and-mdnsavahi-warnings');
 define('FAQ_OOM_URL', 'https://github.com/games-on-whales/unraid-plugin/blob/main/docs/FAQ.md#out-of-memory-oom-crashes');
@@ -809,12 +923,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $error = 'Reset failed: ' . implode("\n", $out);
 
-    } elseif ($action === 'repair_esde') {
-        exec('bash ' . GOW_SCRIPT_DIR . '/repair-esde.sh 2>&1', $out, $ret);
-        $message = $ret === 0
-            ? "ES-DE repair finished:\n" . implode("\n", $out)
-            : 'ES-DE repair failed: ' . implode("\n", $out);
-
     } elseif ($action === 'fix_all') {
         exec('bash ' . GOW_SCRIPT_DIR . '/fix-all.sh 2>&1', $out, $ret);
         if ($ret === 0) {
@@ -872,6 +980,8 @@ $deploy_error    = isset($_GET['deploy_error']);
 $library_mounts  = library_mount_summary($cfg);
 $rom_wiring      = gow_rom_wiring_summary($cfg);
 $rom_validation  = gow_validate_library_path($cfg['ROMS_LIBRARY'] ?? '');
+$apps_summary    = gow_apps_summary($cfg);
+$image_digests   = gow_image_digests($cfg);
 $network_open    = ($wolf_network_mode === 'custom');
 $pairing_status  = pairing_status_label($cfg['APPDATA']);
 $wolf_oom_killed   = container_oom_killed('wolf');
@@ -949,6 +1059,8 @@ $fixed_notice      = isset($_GET['fixed']);
   .gow-rom-validate { margin: -6px 0 14px 0; font-size: 0.9em; color: var(--alt-text-color); }
   .gow-rom-validate.state-missing, .gow-rom-validate.state-not_dir { color: var(--orange-300); }
   .gow-rom-warn { color: var(--orange-300); margin-top: 2px; }
+  .gow-footer { margin: 18px 0 4px; text-align: center; font-size: 0.85em; color: var(--alt-text-color); }
+  .gow-footer a { color: var(--alt-text-color); }
   .gow-health-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .gow-health-list .level-ok { color: var(--green-800); }
   .gow-health-list .level-warn { color: var(--orange-300); }
@@ -1141,12 +1253,20 @@ $fixed_notice      = isset($_GET['fixed']);
   <table class="gow-kv-table">
     <tr>
       <th>Wolf</th>
-      <td><?= status_badge($wolf_status) ?></td>
+      <td>
+        <?= status_badge($wolf_status) ?>
+        <?php if (gow_short_digest($image_digests['wolf']) !== ''): ?>
+          <div class="gow-section-note" style="margin:4px 0 0"><code title="<?= htmlspecialchars($image_digests['wolf']) ?>"><?= htmlspecialchars(gow_short_digest($image_digests['wolf'])) ?></code></div>
+        <?php endif; ?>
+      </td>
     </tr>
     <tr>
       <th>Wolf Den</th>
       <td>
         <?= status_badge($wolf_den_status) ?>
+        <?php if (gow_short_digest($image_digests['wolf-den']) !== ''): ?>
+          <div class="gow-section-note" style="margin:4px 0 0"><code title="<?= htmlspecialchars($image_digests['wolf-den']) ?>"><?= htmlspecialchars(gow_short_digest($image_digests['wolf-den'])) ?></code></div>
+        <?php endif; ?>
         <?php if ($wolf_den_status === 'running' && $wolf_den_url): ?>
           <div class="gow-link-row">
             <a class="gow-btn-link" href="<?= htmlspecialchars($wolf_den_url) ?>" target="_blank">Open Wolf Den</a>
@@ -1185,7 +1305,11 @@ $fixed_notice      = isset($_GET['fixed']);
 
 <?php gow_render_wiring_card($cfg, $rom_wiring); ?>
 
+<?php gow_render_apps_card($apps_summary); ?>
+
 <?php gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf_den_url, $rom_wiring); ?>
+
+<?php gow_render_responsibility_explainer($wolf_den_status === 'running' ? $wolf_den_url : ''); ?>
 
 <div class="gow-card">
   <div class="gow-title">Controls</div>
@@ -1244,14 +1368,6 @@ $fixed_notice      = isset($_GET['fixed']);
           <?php gow_csrf_field(); ?>
           <input type="hidden" name="action" value="cleanup_sessions">
           <button type="submit" class="gow-btn gow-btn-secondary">Cleanup sessions</button>
-        </form>
-        <form method="post" style="display:inline">
-          <?php gow_csrf_field(); ?>
-          <input type="hidden" name="action" value="repair_esde">
-          <button type="submit" class="gow-btn gow-btn-secondary"
-                  onclick="return confirm('Restore ES-DE Custom Scripts and re-apply ROM/BIOS mounts?')">
-            Repair ES-DE
-          </button>
         </form>
         <form method="post" style="display:inline">
           <?php gow_csrf_field(); ?>
@@ -1428,6 +1544,12 @@ $fixed_notice      = isset($_GET['fixed']);
 </div>
 
 <?php endif; ?>
+
+<div class="gow-footer">
+  Games on Whales plugin v<?= htmlspecialchars(GOW_PLUGIN_VERSION) ?>
+  · <a href="https://github.com/games-on-whales/unraid-plugin" target="_blank">GitHub</a>
+  · <a href="<?= FAQ_URL ?>" target="_blank">FAQ</a>
+</div>
 
 </div>
 <script>

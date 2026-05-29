@@ -3,7 +3,7 @@
 <!ENTITY name      "gow">
 <!ENTITY author    "games-on-whales">
 <!ENTITY org       "games-on-whales">
-<!ENTITY version   "2026.05.30">
+<!ENTITY version   "2026.05.31">
 <!ENTITY launch    "Settings/gow">
 <!ENTITY gitPkgURL "https://raw.githubusercontent.com/&org;/unraid-plugin/&version;">
 <!ENTITY gitReleaseURL "https://github.com/&org;/unraid-plugin/releases/download/&version;">
@@ -24,6 +24,19 @@
 >
 
   <CHANGES>
+### 2026.05.31
+- Add ROM "Library wiring" dashboard card and a first-launch checklist (pair → launch → Fix mounts)
+- Health check now warns when a ROMs library is set but no app actually mounts /ROMs
+- Setup form validates the ROM folder (item count, empty/fragile-path warnings)
+- Read-only Apps summary card (titles, image, mount count) parsed from Wolf's config.toml
+- "Plugin vs Wolf Den" explainer so it is clear which tool owns which setting
+- Mount presets now fuzzy-match app titles (e.g. "ES-DE") and support a --dry-run preview
+- Make Wolf / Wolf Den image references configurable to allow pinning by digest; surface the
+  deployed image digests in Status for reproducible installs
+- Register wipe-full.sh so the documented clean-reinstall command actually ships
+- Remove ES-DE repair from the plugin (emulator client state is out of plugin scope; see docs)
+- Add a version footer
+
 ### 2026.05.30
 - Lean plugin UI: removed Apps panel, config backups, scheduled auto-health, live memory polling, and live log tailing
 - Simplified health checks, Advanced panel, and Fix mounts (cleanup + presets + restart only)
@@ -173,6 +186,10 @@
     <URL>&gitPkgURL;/scripts/reset.sh</URL>
   </FILE>
 
+  <FILE Name="&script_dir;/wipe-full.sh">
+    <URL>&gitPkgURL;/scripts/wipe-full.sh</URL>
+  </FILE>
+
   <FILE Name="&script_dir;/library-links.sh">
     <URL>&gitPkgURL;/scripts/library-links.sh</URL>
   </FILE>
@@ -186,9 +203,6 @@
 
   <FILE Name="&script_dir;/pairing-state.sh">
     <URL>&gitPkgURL;/scripts/pairing-state.sh</URL>
-  </FILE>
-  <FILE Name="&script_dir;/repair-esde.sh">
-    <URL>&gitPkgURL;/scripts/repair-esde.sh</URL>
   </FILE>
   <FILE Name="&script_dir;/detect-paths.sh">
     <URL>&gitPkgURL;/scripts/detect-paths.sh</URL>

@@ -64,11 +64,11 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 | `library-links.sh` | Deploy/update/mount presets | Symlink user library paths under `${APPDATA}/` when they live outside GoW appdata |
 | `apply-mount-presets.sh` / `.py` | Deploy/update/fix | Merge plugin library paths into Wolf app runner mounts in `config.toml` |
 | `detect-paths.sh` | Plugin install | Suggest existing ROM/BIOS/Steam/etc. share paths to pre-fill setup |
-| `repair-esde.sh` | UI Advanced | Restore ES-DE Custom Scripts config and re-apply ROM/BIOS mounts |
 | `cleanup-wolf-sessions.sh` | UI / stop / Fix mounts | Remove exited `Wolf*` session containers that hold memory |
 | `health-check.sh` | CLI | Print stack health; exit code reflects healthy/degraded/unhealthy |
 | `fix-all.sh` | UI "Fix mounts" | Cleanup sessions, re-apply mount presets, restart Wolf |
 | `reset.sh` | UI "Reset to Defaults" | Reset plugin settings to defaults (appdata kept) |
+| `wipe-full.sh` | CLI (documented in FAQ) | Full clean-slate wipe of stack, hooks, UI package, and appdata |
 | `hotfix-page.sh` | Dev | Hot-swap the settings page during development |
 | `apply-ui.sh` | Dev / after plugin update | Re-run `installpkg` on the newest `settings-ui-*.txz` under `/boot/config/plugins/gow/packages/` |
 

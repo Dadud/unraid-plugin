@@ -34,6 +34,10 @@ LUTRIS_LIBRARY="${LUTRIS_LIBRARY:-}"
 COMPAT_TOOLS_PATH="${COMPAT_TOOLS_PATH:-}"
 WOLF_MEMORY_LIMIT="${WOLF_MEMORY_LIMIT:-}"
 WOLF_DEN_MEMORY_LIMIT="${WOLF_DEN_MEMORY_LIMIT:-}"
+# Image references are configurable so installs can be pinned to a specific
+# digest (e.g. ghcr.io/games-on-whales/wolf@sha256:...) for reproducibility.
+WOLF_IMAGE="${WOLF_IMAGE:-ghcr.io/games-on-whales/wolf:stable}"
+WOLF_DEN_IMAGE="${WOLF_DEN_IMAGE:-ghcr.io/games-on-whales/wolf-den:stable}"
 [[ -n "${RENDER_NODE:-}" ]] || err "No GPU configured. Select a GPU in Settings > Games on Whales."
 [[ -n "${GPU_VENDOR:-}"  ]] || err "GPU vendor not set. Re-run setup in Settings > Games on Whales."
 if [[ ! "$WOLF_DEN_PORT" =~ ^[0-9]+$ ]] || (( WOLF_DEN_PORT < 1 || WOLF_DEN_PORT > 65535 )); then
@@ -290,7 +294,7 @@ write_compose_nvidia() {
     cat <<YAML
 services:
   wolf:
-    image: ghcr.io/games-on-whales/wolf:stable
+    image: ${WOLF_IMAGE}
     container_name: wolf
     environment:
       - WOLF_RENDER_NODE=${RENDER_NODE}
@@ -324,7 +328,7 @@ YAML
     restart: unless-stopped
 
   wolf-den:
-    image: ghcr.io/games-on-whales/wolf-den:stable
+    image: ${WOLF_DEN_IMAGE}
     container_name: wolf-den
     environment:
       - WOLF_SOCKET_PATH=/tmp/sockets/wolf.sock
@@ -369,7 +373,7 @@ write_compose_standard() {
     cat <<YAML
 services:
   wolf:
-    image: ghcr.io/games-on-whales/wolf:stable
+    image: ${WOLF_IMAGE}
     container_name: wolf
     environment:
       - WOLF_RENDER_NODE=${RENDER_NODE}
@@ -400,7 +404,7 @@ YAML
     restart: unless-stopped
 
   wolf-den:
-    image: ghcr.io/games-on-whales/wolf-den:stable
+    image: ${WOLF_DEN_IMAGE}
     container_name: wolf-den
     environment:
       - WOLF_SOCKET_PATH=/tmp/sockets/wolf.sock
@@ -591,6 +595,23 @@ done
 
 info "Starting Wolf + Wolf Den..."
 docker compose -f "$COMPOSE_FILE" up -d
+
+record_image_digests() {
+    local digest_file="${APPDATA}/cfg/.image-digests"
+    local wolf_digest den_digest
+    wolf_digest=$(docker inspect --format '{{index .RepoDigests 0}}' wolf 2>/dev/null || true)
+    den_digest=$(docker inspect --format '{{index .RepoDigests 0}}' wolf-den 2>/dev/null || true)
+    {
+        echo "# Resolved image digests recorded at deploy time."
+        echo "# Pin an install by copying a digest into WOLF_IMAGE / WOLF_DEN_IMAGE in gow.cfg."
+        echo "wolf=${wolf_digest:-unknown}"
+        echo "wolf-den=${den_digest:-unknown}"
+        echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$digest_file" 2>/dev/null || warn "Could not record image digests"
+    [[ -n "$wolf_digest" ]] && info "Wolf image: ${wolf_digest}"
+    [[ -n "$den_digest" ]] && info "Wolf Den image: ${den_digest}"
+}
+record_image_digests
 
 info "Waiting for Wolf config (needed for shared library mount presets)..."
 for _ in $(seq 1 30); do
