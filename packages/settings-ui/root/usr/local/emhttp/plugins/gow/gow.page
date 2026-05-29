@@ -338,78 +338,109 @@ function gow_preset_titles() {
     ];
 }
 
-// Summarize how the configured ROM library is wired through to app runners.
-// Returns: rom path, symlink display, whether config.toml mounts /ROMs, and
-// which preset-capable app titles are present in config.toml.
-function gow_rom_wiring_summary($cfg) {
+// Summarize configured libraries vs app runner mounts in Wolf config.toml.
+function gow_library_wiring_summary($cfg) {
+    $audit = gow_library_mount_audit($cfg);
     $appdata = rtrim($cfg['APPDATA'] ?? DEFAULT_APPDATA, '/');
-    $roms = rtrim(trim($cfg['ROMS_LIBRARY'] ?? ''), '/');
-    $summary = [
-        'roms'        => $roms,
-        'symlink'     => $roms !== '' ? gow_library_mount_display($appdata, 'roms', $roms) : '',
-        'toml_mount'  => null,   // null = unknown, true/false once config read
-        'apps'        => [],
-        'sample_line' => '',
-    ];
-    if ($roms === '') {
-        return $summary;
-    }
-    $cfg_file = $appdata . '/cfg/config.toml';
-    if (!is_readable($cfg_file)) {
-        return $summary;
-    }
-    $text = file_get_contents($cfg_file);
-    if ($text === false) {
-        return $summary;
-    }
-    $summary['toml_mount'] = (bool)preg_match('~"[^"]+:(?:/ROMs|/home/retro/ROMs)(?::[a-z]+)?"~', $text);
-    foreach (gow_preset_titles() as $title) {
-        if (preg_match('/^title\s*=\s*["\']' . preg_quote($title, '/') . '["\']/m', $text)) {
-            $summary['apps'][] = $title;
+    $displays = [];
+    foreach ($audit['libraries'] as $lib) {
+        $slot = strtolower(preg_replace('/[^a-z0-9]+/i', '', $lib['label']));
+        if ($lib['key'] === 'ROMS_LIBRARY') {
+            $slot = 'roms';
+        } elseif ($lib['key'] === 'STEAM_LIBRARY') {
+            $slot = 'steam';
+        } elseif ($lib['key'] === 'GAMES_LIBRARY') {
+            $slot = 'games';
+        } elseif ($lib['key'] === 'LUTRIS_LIBRARY') {
+            $slot = 'lutris';
+        } elseif ($lib['key'] === 'BIOS_LIBRARY') {
+            $slot = 'bioses';
+        } elseif ($lib['key'] === 'MEDIA_LIBRARY') {
+            $slot = 'media';
         }
+        $displays[$lib['key']] = gow_library_mount_display($appdata, $slot, $lib['path']);
     }
-    if (preg_match('~"([^"]+:(?:/ROMs)(?::[a-z]+)?)"~', $text, $m)) {
-        $summary['sample_line'] = $m[1];
-    }
-    return $summary;
+    return [
+        'audit'     => $audit,
+        'displays'  => $displays,
+        'all_wired' => $audit['all_wired'],
+    ];
 }
 
-function gow_render_wiring_card($cfg, $wiring) {
-    if (($wiring['roms'] ?? '') === '') {
+function gow_render_libraries_card($cfg, $summary, $wolf_den_url = '') {
+    $audit = $summary['audit'] ?? gow_library_mount_audit($cfg);
+    if (!$audit['has_any_library']) {
         return;
     }
     ?>
 <div class="gow-card">
-  <div class="gow-title">Library wiring</div>
+  <div class="gow-title">Libraries in apps</div>
+  <p class="gow-section-note">
+    Setup picks where your files live on Unraid. Each Moonlight app (Steam, ES-DE, Lutris, …)
+    also needs those folders mapped inside the app container in Wolf's config.
+    <strong>Advanced → Fix mounts</strong> adds the mappings; then relaunch the app from Moonlight.
+  </p>
+  <?php if (!$audit['config_readable']): ?>
+  <p class="gow-section-note"><span class="gow-health-badge">waiting</span> Deploy Wolf first, then run Fix mounts.</p>
+  <?php else: ?>
   <table class="gow-kv-table">
-    <tr><th>ROMs folder</th><td><?= htmlspecialchars($wiring['symlink'] ?: $wiring['roms']) ?></td></tr>
+    <?php foreach ($audit['libraries'] as $lib): ?>
     <tr>
-      <th>App mounts</th>
+      <th><?= htmlspecialchars($lib['label']) ?></th>
       <td>
-        <?php if ($wiring['toml_mount'] === true): ?>
-          <span class="gow-health-badge healthy">wired</span>
-          <?php if ($wiring['apps']): ?>
-            <span class="gow-section-note"><?= htmlspecialchars(implode(', ', $wiring['apps'])) ?></span>
+        <div><?= htmlspecialchars($summary['displays'][$lib['key']] ?? $lib['path']) ?></div>
+        <div class="gow-section-note">maps to <code><?= htmlspecialchars($lib['dest']) ?></code></div>
+        <?php if (!$lib['apps']): ?>
+          <span class="gow-health-badge degraded">no matching app in config</span>
+          <?php if ($wolf_den_url): ?>
+            — add <?= htmlspecialchars(implode(' or ', gow_library_app_spec()[$lib['key']]['apps'])) ?>
+            in <a class="gow-btn-link" href="<?= htmlspecialchars(rtrim($wolf_den_url, '/') . '/apps/show') ?>" target="_blank">Wolf Den → Apps</a>
           <?php endif; ?>
-        <?php elseif ($wiring['toml_mount'] === false): ?>
-          <span class="gow-health-badge degraded">not wired yet</span>
-          <span class="gow-section-note">Use Advanced → Fix mounts, then relaunch the app.</span>
         <?php else: ?>
-          <span class="gow-health-badge">pending</span>
-          <span class="gow-section-note">Deploy Wolf so config.toml exists, then Fix mounts.</span>
+        <ul class="gow-checklist" style="margin:0.25em 0 0;padding-left:1.2em;">
+          <?php foreach ($lib['apps'] as $app): ?>
+          <li class="<?= $app['wired'] ? 'done' : '' ?>">
+            <?= htmlspecialchars($app['title']) ?>
+            <?php if ($app['wired']): ?>
+              — <span class="gow-health-badge healthy">mapped</span>
+            <?php else: ?>
+              — <span class="gow-health-badge degraded">not mapped</span>
+            <?php endif; ?>
+          </li>
+          <?php endforeach; ?>
+        </ul>
         <?php endif; ?>
       </td>
     </tr>
-    <?php if ($wiring['sample_line']): ?>
-    <tr><th>Example mount</th><td><code><?= htmlspecialchars($wiring['sample_line']) ?></code></td></tr>
-    <?php endif; ?>
+    <?php endforeach; ?>
   </table>
-  <p class="gow-section-note">
-    We do not move your files. ROMs and BIOS stay in place; the plugin only mounts the host
-    folders into the emulator apps. BIOS is a separate folder.
-  </p>
+  <?php if (!$audit['all_wired']): ?>
+  <p class="gow-section-note">Run <strong>Advanced → Fix mounts</strong>, then relaunch apps from Moonlight.</p>
+  <?php endif; ?>
+  <?php endif; ?>
 </div>
     <?php
+}
+
+function gow_rom_wiring_summary($cfg) {
+    $summary = gow_library_wiring_summary($cfg);
+    $rom_audit = gow_rom_mount_audit($cfg);
+    return [
+        'roms'        => $rom_audit['roms'],
+        'symlink'     => ($rom_audit['roms'] !== '' && isset($summary['displays']['ROMS_LIBRARY']))
+            ? $summary['displays']['ROMS_LIBRARY'] : '',
+        'audit'       => $rom_audit,
+        'toml_mount'  => $rom_audit['config_readable'] ? $rom_audit['any_rom_mount'] : null,
+        'apps'        => array_map(function ($a) {
+            return $a['canonical'];
+        }, $rom_audit['apps']),
+        'all_wired'   => $summary['all_wired'],
+        'lib_audit'   => $summary['audit'],
+    ];
+}
+
+function gow_render_wiring_card($cfg, $wiring, $wolf_den_url = '') {
+    gow_render_libraries_card($cfg, gow_library_wiring_summary($cfg), $wolf_den_url);
 }
 
 // A short, ordered "what to do next" list. No ES-DE repair here — that is an
@@ -417,7 +448,9 @@ function gow_render_wiring_card($cfg, $wiring) {
 function gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf_den_url, $wiring) {
     $den_up = ($wolf_den_status === 'running');
     $rom_wired = ($wiring['toml_mount'] ?? null) === true;
-    $has_roms = ($wiring['roms'] ?? '') !== '';
+    $lib_audit = $wiring['audit'] ?? null;
+    $has_libraries = is_array($lib_audit) ? ($lib_audit['has_any_library'] ?? false) : false;
+    $all_wired = $wiring['all_wired'] ?? false;
     ?>
 <div class="gow-card">
   <div class="gow-title">First launch checklist</div>
@@ -436,13 +469,13 @@ function gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf
         — <a class="gow-btn-link" href="<?= htmlspecialchars($wolf_den_url . '/apps/show') ?>" target="_blank">manage apps in Wolf Den</a>
       <?php endif; ?>
     </li>
-    <?php if ($has_roms): ?>
-    <li class="<?= $rom_wired ? 'done' : '' ?>">
-      Games appear?
-      <?php if ($rom_wired): ?>
-        ROMs are wired in. If a system is empty, check your folder layout (<code>ROMs/&lt;system&gt;/</code>).
+    <?php if ($has_libraries): ?>
+    <li class="<?= $all_wired ? 'done' : '' ?>">
+      Can apps see your libraries?
+      <?php if ($all_wired): ?>
+        Yes — host folders are mapped in Wolf's config. Relaunch an app from Moonlight if it still looks empty.
       <?php else: ?>
-        If not, run <strong>Advanced → Fix mounts</strong> and relaunch.
+        Run <strong>Advanced → Fix mounts</strong>, then relaunch from Moonlight.
       <?php endif; ?>
     </li>
     <?php endif; ?>
@@ -978,6 +1011,7 @@ $pick_root       = pick_root();
 $reset_notice    = isset($_GET['reset']);
 $deploy_error    = isset($_GET['deploy_error']);
 $library_mounts  = library_mount_summary($cfg);
+$library_wiring  = gow_library_wiring_summary($cfg);
 $rom_wiring      = gow_rom_wiring_summary($cfg);
 $rom_validation  = gow_validate_library_path($cfg['ROMS_LIBRARY'] ?? '');
 $apps_summary    = gow_apps_summary($cfg);
@@ -1303,11 +1337,11 @@ $fixed_notice      = isset($_GET['fixed']);
   </table>
 </div>
 
-<?php gow_render_wiring_card($cfg, $rom_wiring); ?>
+<?php gow_render_libraries_card($cfg, $library_wiring, $wolf_den_url); ?>
 
 <?php gow_render_apps_card($apps_summary); ?>
 
-<?php gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf_den_url, $rom_wiring); ?>
+<?php gow_render_first_launch_checklist($wolf_den_status, $pairing_url, $wolf_den_url, $library_wiring); ?>
 
 <?php gow_render_responsibility_explainer($wolf_den_status === 'running' ? $wolf_den_url : ''); ?>
 

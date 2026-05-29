@@ -102,7 +102,11 @@ def parse_mount_line(line: str) -> tuple[str, str, str] | None:
 
 def parse_mounts_array(text: str) -> list[tuple[str, str, str]]:
     mounts: list[tuple[str, str, str]] = []
-    for raw in re.findall(r'"([^"]+)"', text):
+    seen: set[str] = set()
+    for raw in re.findall(r'"([^"]+)"', text) + re.findall(r"'([^']+)'", text):
+        if raw in seen:
+            continue
+        seen.add(raw)
         parsed = parse_mount_line(raw)
         if parsed:
             mounts.append(parsed)
@@ -114,6 +118,24 @@ def format_mounts_array(mounts: list[tuple[str, str, str]]) -> str:
         return "[]"
     inner = ",\n    ".join(f'"{src}:{dst}:{mode}"' for src, dst, mode in mounts)
     return f"[\n    {inner}\n]"
+
+
+def ensure_mounts_array(block: str) -> tuple[str, tuple[int, int] | None]:
+    """Ensure [[profiles.apps]] runner block has a mounts = [...] array."""
+    span = find_bracket_array(block, "mounts")
+    if span:
+        return block, span
+    runner = re.search(r"^\[profiles\.apps\.runner\]", block, flags=re.MULTILINE)
+    if not runner:
+        return block, None
+    insert_at = len(block)
+    for key in ("env", "devices", "ports", "base_create_json"):
+        match = re.search(rf"^\s*{re.escape(key)}\s*=", block, flags=re.MULTILINE)
+        if match:
+            insert_at = min(insert_at, match.start())
+    prefix = "" if insert_at == 0 or block[insert_at - 1] == "\n" else "\n"
+    block = block[:insert_at] + f"{prefix}mounts = []\n" + block[insert_at:]
+    return block, find_bracket_array(block, "mounts")
 
 
 def find_bracket_array(block: str, key: str) -> tuple[int, int] | None:
@@ -155,6 +177,9 @@ def sanitize_mounts(mounts: list[tuple[str, str, str]]) -> list[tuple[str, str, 
             continue
         if src.startswith("/etc/wolf/"):
             continue
+        # Drop Docker named volumes (e.g. lutris:/var/lutris/:rw) — presets use host binds.
+        if not src.startswith("/"):
+            continue
         cleaned.append((src, dst, mode))
     return cleaned
 
@@ -170,6 +195,10 @@ def required_device_paths(mounts: list[tuple[str, str, str]]) -> list[str]:
         paths.append("/media/")
     if "/var/lutris" in destinations:
         paths.append("/var/lutris/")
+    if "/home/retro/.local/share/Steam" in destinations:
+        paths.append("/home/retro/.local/share/Steam/")
+    if "/games" in destinations:
+        paths.append("/games/")
     return paths
 
 
@@ -261,7 +290,7 @@ def patch_config(text: str, paths: dict[str, str]) -> tuple[str, int]:
             out.append(block)
             continue
 
-        mounts_span = find_bracket_array(block, "mounts")
+        block, mounts_span = ensure_mounts_array(block)
         if not mounts_span:
             out.append(block)
             continue
@@ -323,6 +352,20 @@ def main() -> int:
         print(f"Applied mount presets to {count} app runner(s) in {cfg_path}")
     else:
         print(f"No app runners needed mount preset updates in {cfg_path}")
+        hints: list[str] = []
+        if paths.get("ROMS") and ":/ROMs" not in patched:
+            hints.append("add RetroArch or EmulationStation in Wolf Den (Apps)")
+        if paths.get("STEAM") and ".local/share/Steam" not in patched:
+            hints.append("add Steam in Wolf Den (Apps)")
+        if paths.get("LUTRIS") and ":/var/lutris" not in patched:
+            hints.append("add Lutris in Wolf Den (Apps)")
+        if paths.get("GAMES") and ":/games" not in patched:
+            hints.append("add Prismlauncher or Heroic in Wolf Den (Apps)")
+        if hints:
+            print(
+                "Hint: " + "; ".join(hints) + ", then run Fix mounts again.",
+                file=sys.stderr,
+            )
     return 0
 
 

@@ -119,7 +119,29 @@ cp -a "$APPDATA/.pairing-backup/"* "$APPDATA/cfg/"
 docker compose -f "$APPDATA/docker-compose.yml" restart wolf wolf-den
 ```
 
-## ES-DE Custom Scripts and ROM/BIOS library mounts
+## ES-DE, Steam, Lutris, and library mounts
+
+Games on Whales uses **two layers** for shared folders:
+
+1. **Wolf service (compose)** — your Unraid paths appear at `/etc/wolf/roms`, `/etc/wolf/steam`, etc. **inside the Wolf container only**.
+2. **App sessions (config.toml)** — each Moonlight app (ES-DE, Steam, Lutris, …) needs the host path bound to an app-specific path (e.g. `/ROMs`, `~/.local/share/Steam`, `/var/lutris`).
+
+The plugin writes layer 2 via `apply-mount-presets.py` when you deploy or click **Advanced → Fix mounts**. The dashboard **Libraries in apps** card and health check **Libraries in apps** show whether each app is mapped.
+
+Full contract: [ECOSYSTEM_DEV_SKELETON.md §4.2](ECOSYSTEM_DEV_SKELETON.md).
+
+### Library mount contract (session paths)
+
+| Library (Setup) | Apps | Container path |
+|-----------------|------|------------------|
+| ROMs | EmulationStation, RetroArch, Pegasus | `/ROMs` |
+| BIOS | EmulationStation, Pegasus | `/bioses` |
+| Media | EmulationStation, Kodi | `/media` |
+| Steam | Steam | `/home/retro/.local/share/Steam` |
+| PC games | Prismlauncher, Heroic, Desktop | `/games` |
+| Lutris | Lutris | `/var/lutris` |
+
+### ES-DE Custom Scripts and ROM layout
 
 EmulationStation (ES-DE) in Games on Whales expects shared libraries at fixed paths
 inside the app container:
@@ -141,8 +163,8 @@ Getting games to show up involves two independent layers:
 
 1. **Host mounts (plugin scope).** The plugin makes your Unraid share visible to
    the emulator app by writing `…:/ROMs:rw` into Wolf's `config.toml` app runner.
-   The plugin owns this layer. Use **Advanced → Fix mounts** if `/ROMs` is not
-   wired (the dashboard "Library wiring" card shows the current state).
+   The plugin owns this layer. Use **Advanced → Fix mounts** if apps are not mapped
+   (the dashboard **Libraries in apps** card shows per-app status).
 2. **ES-DE client state (emulator/image scope, *not* plugin scope).** ES-DE seeds
    its Custom Scripts platform and writes `es_settings.xml` on first run, stored at:
 
@@ -182,7 +204,8 @@ seconds) that verifies:
 - Pairing files and Moonlight client count
 - Wolf Den HTTP response
 - Boot auto-start hook and udev rules
-- Library mount presets in `config.toml` (when ROM/BIOS paths are configured)
+- Library mount presets in `config.toml` (when library paths are configured)
+- **Libraries in apps** health item (Steam, Lutris, emulators, …)
 - Stale session containers and OOM state
 
 From the Unraid terminal:
@@ -201,10 +224,10 @@ NVIDIA settings, library paths, ghcr.io reachability).
 When the dashboard health is not **healthy**, use **Fix all** on the health
 panel (or Advanced). It runs, in order:
 
-1. Cleanup stale Wolf session containers
-2. Re-apply ROM/BIOS/media mount presets in `config.toml`
-3. Restore ES-DE Custom Scripts config
-4. Restart Wolf + Wolf Den
+1. Cleanup stale Wolf session containers (exited)
+2. Re-apply library mount presets in `config.toml`
+3. Restart Wolf + Wolf Den
+4. Remove running Wolf app session containers so the next Moonlight launch uses new mounts
 
 From the terminal:
 
@@ -212,15 +235,32 @@ From the terminal:
 bash /boot/config/plugins/gow/scripts/fix-all.sh
 ```
 
-### Check Wolf mount presets
+### Library audit (diagnostics)
+
+```bash
+bash /boot/config/plugins/gow/scripts/library-audit.sh
+```
+
+### Check Wolf mount presets (all apps)
 
 ```bash
 APPDATA=/mnt/user/appdata/gow
-grep -A20 'title = "EmulationStation"' "$APPDATA/cfg/config.toml" | grep -E 'mounts|GOW_REQUIRED'
+for app in EmulationStation Steam Lutris RetroArch; do
+  echo "=== $app ==="
+  grep -A20 "title = \"$app\"" "$APPDATA/cfg/config.toml" | grep -E 'mounts|GOW_REQUIRED'
+done
 ```
 
-You should see host paths like `/mnt/user/roms:/ROMs:rw`, not `/etc/wolf/roms`
-or `/home/retro/ROMs` alone.
+You should see host paths like `/mnt/user/roms:/ROMs:rw` and
+`/mnt/user/steam:/home/retro/.local/share/Steam:rw`, not `/etc/wolf/*` alone.
+
+### E2E acceptance (after Fix mounts + Moonlight relaunch)
+
+| App | Pass |
+|-----|------|
+| ES-DE | At least one system lists games; ROM layout `ROMs/<system>/` |
+| Steam | Can add/install to library; files appear under host Steam share `steamapps/` |
+| Lutris | Opens; `/var/lutris` is your host Lutris path, not an empty Docker volume |
 
 ## Out-of-memory (OOM) crashes
 

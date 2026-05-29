@@ -163,6 +163,20 @@ sync_library_links_logged() {
         chown -R 1000:1000 "$COMPAT_TOOLS_PATH" 2>/dev/null || true
         chmod 775 "$COMPAT_TOOLS_PATH" 2>/dev/null || true
     fi
+    # Session apps run as uid 1000 (retro); library shares must be writable there.
+    local lib_path
+    for lib_path in \
+        "${ROMS_LIBRARY:-}" \
+        "${BIOS_LIBRARY:-}" \
+        "${MEDIA_LIBRARY:-}" \
+        "${STEAM_LIBRARY:-}" \
+        "${GAMES_LIBRARY:-}" \
+        "${LUTRIS_LIBRARY:-}"; do
+        [[ -n "$lib_path" ]] || continue
+        [[ -d "$lib_path" ]] || continue
+        chown -R 1000:1000 "$lib_path" 2>/dev/null || true
+        chmod 775 "$lib_path" 2>/dev/null || true
+    done
 }
 
 migrate_legacy_etc_wolf() {

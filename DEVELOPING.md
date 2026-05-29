@@ -69,7 +69,9 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 | `fix-all.sh` | UI "Fix mounts" | Cleanup sessions, re-apply mount presets, restart Wolf |
 | `reset.sh` | UI "Reset to Defaults" | Reset plugin settings to defaults (appdata kept) |
 | `wipe-full.sh` | CLI (documented in FAQ) | Full clean-slate wipe of stack, hooks, UI package, and appdata |
-| `hotfix-page.sh` | Dev | Hot-swap the settings page during development |
+| `hotfix-page.sh` | Dev | Install `dist/settings-ui.txz` only (UI under `/usr/local/emhttp/plugins/gow/`) |
+| `library-audit.sh` | CLI / dev | Layer 1 vs Layer 2 library mount diagnostics |
+| `dev-sync.sh` | Dev | Pull all scripts + settings UI from local HTTP server |
 | `apply-ui.sh` | Dev / after plugin update | Re-run `installpkg` on the newest `settings-ui-*.txz` under `/boot/config/plugins/gow/packages/` |
 
 ## Config file
@@ -105,7 +107,60 @@ md5sum    settings-ui-<version>.txz | awk '{print $1}' > settings-ui-<version>.t
 
 Update the `<SHA256>` and `<MD5>` fields in `gow.plg` after each rebuild.
 
-During development, serve the **repo root** (not only `packages/settings-ui/dist`) from your local HTTP server so both `gow-dev.plg`, `scripts/*`, and `dist/settings-ui.txz` are reachable. Point `gitReleaseURL` at `http://<ip>:8888/dist` (see above).
+During development, serve the **repo root** (not only `packages/settings-ui/dist`) from your local HTTP server so `gow-dev.plg`, `scripts/*`, and `dist/settings-ui.txz` are reachable. The `unraid-dev/prepare.ps1` + `serve.ps1` helpers automate this on Windows; see `unraid-dev/prepare.ps1` output for exact URLs.
+
+### Local dev install (recommended)
+
+On your dev PC (repo root, branch with your changes):
+
+```powershell
+cd unraid-dev
+.\prepare.ps1          # build dist/settings-ui.txz, generate gow-dev.plg
+.\serve.ps1            # keep running — serves the repo on :8888
+```
+
+On Unraid (**first time only**):
+
+```sh
+plugin remove gow.plg
+plugin install http://<dev-ip>:8888/gow-dev.plg
+```
+
+Then open **Settings → Games on Whales** and complete setup (GPU, appdata, Install).
+
+**Production (no dev server):**
+
+```sh
+plugin remove gow.plg 2>/dev/null
+plugin install https://github.com/games-on-whales/unraid-plugin/releases/latest/download/gow.plg
+```
+
+### After you change code
+
+The plugin ships two things that live in different places on Unraid:
+
+| What | Where on Unraid | How it gets there |
+|---|---|---|
+| Shell/Python scripts (`deploy.sh`, `apply-mount-presets.py`, …) | `/boot/config/plugins/gow/scripts/` | Downloaded from your dev server on plugin install/update |
+| Settings UI (`gow.page`, `php/*`) | `/usr/local/emhttp/plugins/gow/` | Installed from `dist/settings-ui.txz` via `installpkg` |
+
+**Update Images** on the dashboard only refreshes Wolf Docker images — it does **not** update the plugin UI or scripts.
+
+After edits on your PC:
+
+```powershell
+.\prepare.ps1 -SkipGit    # rebuild txz only; keep serve.ps1 running
+```
+
+On Unraid:
+
+```sh
+bash /boot/config/plugins/gow/scripts/dev-sync.sh http://<dev-ip>:8888
+```
+
+That one command re-downloads all scripts and reinstalls the settings UI. You only need `plugin install …/gow-dev.plg` again when `dev-sync.sh` is missing (very first dev install) or when you change `gow.plg` itself.
+
+`hotfix-page.sh` alone only updates the UI — use it only if you changed `gow.page`/`php/*` and not any script under `scripts/`.
 
 ### UI changes not showing on Unraid
 

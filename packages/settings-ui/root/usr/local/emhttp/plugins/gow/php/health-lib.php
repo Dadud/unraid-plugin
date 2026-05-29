@@ -136,9 +136,9 @@ function gow_run_health_checks(array $cfg) {
         $stale === 0 ? '' : "{$stale} exited — use Cleanup stale sessions."
     );
 
-    $rom_check = gow_check_rom_mount($cfg);
-    if ($rom_check !== null) {
-        $checks[] = $rom_check;
+    $lib_checks = gow_library_mount_health_checks($cfg);
+    foreach ($lib_checks as $lib_check) {
+        $checks[] = $lib_check;
     }
 
     return [
@@ -148,32 +148,300 @@ function gow_run_health_checks(array $cfg) {
     ];
 }
 
-// If a ROMs library is configured, verify that Wolf's config.toml actually
-// mounts a host ROM path into an emulator app runner. Mounting only at the
-// Wolf service layer does NOT expose ROMs to session containers — the host
-// path must appear in a [[profiles.apps]] mounts array (see apply-mount-presets).
-// Returns a health item, or null when no ROMs library is configured.
-function gow_check_rom_mount(array $cfg) {
-    $roms = trim($cfg['ROMS_LIBRARY'] ?? '');
-    if ($roms === '') {
-        return null;
+// Canonical app titles — keep in sync with APP_PRESETS in apply-mount-presets.py.
+function gow_preset_app_titles() {
+    return [
+        'RetroArch', 'Pegasus', 'EmulationStation', 'Steam', 'Lutris',
+        'Prismlauncher', 'Kodi', 'Desktop (xfce)', 'Heroic Games Launcher',
+    ];
+}
+
+function gow_title_aliases() {
+    return [
+        'esde' => 'EmulationStation',
+        'emulationstationdesktopedition' => 'EmulationStation',
+        'emustation' => 'EmulationStation',
+        'retroarch' => 'RetroArch',
+        'xfce' => 'Desktop (xfce)',
+        'desktop' => 'Desktop (xfce)',
+        'xfcedesktop' => 'Desktop (xfce)',
+        'heroic' => 'Heroic Games Launcher',
+        'heroicgameslauncher' => 'Heroic Games Launcher',
+        'prism' => 'Prismlauncher',
+        'prismlauncher' => 'Prismlauncher',
+    ];
+}
+
+function gow_resolve_preset_title($title) {
+    foreach (gow_preset_app_titles() as $canonical) {
+        if ($title === $canonical || gow_normalize_app_title($title) === gow_normalize_app_title($canonical)) {
+            return $canonical;
+        }
     }
+    $norm = gow_normalize_app_title($title);
+    $aliases = gow_title_aliases();
+    return $aliases[$norm] ?? null;
+}
+
+// Library key → apps that need a mount when the library is configured.
+function gow_library_app_spec() {
+    return [
+        'ROMS_LIBRARY' => [
+            'label' => 'ROMs',
+            'dest'  => '/ROMs',
+            'apps'  => ['EmulationStation', 'RetroArch', 'Pegasus'],
+        ],
+        'BIOS_LIBRARY' => [
+            'label' => 'BIOS',
+            'dest'  => '/bioses',
+            'apps'  => ['EmulationStation', 'Pegasus'],
+        ],
+        'MEDIA_LIBRARY' => [
+            'label' => 'Media',
+            'dest'  => '/media',
+            'apps'  => ['EmulationStation', 'Kodi'],
+        ],
+        'STEAM_LIBRARY' => [
+            'label' => 'Steam',
+            'dest'  => '/home/retro/.local/share/Steam',
+            'apps'  => ['Steam'],
+        ],
+        'GAMES_LIBRARY' => [
+            'label' => 'PC games',
+            'dest'  => '/games',
+            'apps'  => ['Prismlauncher', 'Heroic Games Launcher', 'Desktop (xfce)'],
+        ],
+        'LUTRIS_LIBRARY' => [
+            'label' => 'Lutris',
+            'dest'  => '/var/lutris',
+            'apps'  => ['Lutris'],
+        ],
+    ];
+}
+
+function gow_block_has_mount_dest($block, $dest) {
+    $quoted = preg_quote($dest, '~');
+    return (bool)preg_match('~["\'][^"\']+:' . $quoted . '(?::[a-z]+)?["\']~', $block);
+}
+
+function gow_config_apps_by_title($text) {
+    $blocks = preg_split('/(?=^\[\[profiles\.apps\]\])/m', $text);
+    $by_title = [];
+    foreach ($blocks as $block) {
+        if (!preg_match('/^\s*\[\[profiles\.apps\]\]/', $block)) {
+            continue;
+        }
+        if (!preg_match('/^title\s*=\s*["\']([^"\']+)["\']/m', $block, $tm)) {
+            continue;
+        }
+        $title = $tm[1];
+        $canonical = gow_resolve_preset_title($title);
+        if ($canonical === null) {
+            continue;
+        }
+        if (!isset($by_title[$canonical])) {
+            $by_title[$canonical] = [
+                'title'  => $title,
+                'block'  => $block,
+            ];
+        }
+    }
+    return $by_title;
+}
+
+// Full audit: each configured library vs app runner mounts in config.toml.
+function gow_library_mount_audit(array $cfg) {
     $appdata = rtrim($cfg['APPDATA'] ?? '/mnt/user/appdata/gow', '/');
-    $cfg_file = $appdata . '/cfg/config.toml';
-    if (!is_readable($cfg_file)) {
-        return gow_health_item('warn', 'ROM library wired into apps',
-            'config.toml not readable yet — deploy Wolf, then run Fix mounts.');
+    $audit = [
+        'config_path'     => $appdata . '/cfg/config.toml',
+        'config_readable' => false,
+        'libraries'       => [],
+        'has_any_library' => false,
+        'all_wired'       => true,
+    ];
+    $spec = gow_library_app_spec();
+    foreach ($spec as $cfg_key => $meta) {
+        $path = rtrim(trim($cfg[$cfg_key] ?? ''), '/');
+        if ($path === '') {
+            continue;
+        }
+        $audit['has_any_library'] = true;
+        $audit['libraries'][] = [
+            'key'   => $cfg_key,
+            'label' => $meta['label'],
+            'path'  => $path,
+            'dest'  => $meta['dest'],
+            'apps'  => [],
+        ];
     }
-    $text = file_get_contents($cfg_file);
+    if (!$audit['has_any_library']) {
+        return $audit;
+    }
+    if (!is_readable($audit['config_path'])) {
+        $audit['all_wired'] = false;
+        return $audit;
+    }
+    $audit['config_readable'] = true;
+    $text = file_get_contents($audit['config_path']);
     if ($text === false) {
-        return gow_health_item('warn', 'ROM library wired into apps', 'Could not read config.toml.');
+        $audit['all_wired'] = false;
+        return $audit;
     }
-    // Any app runner mount whose container destination is /ROMs (or ~/ROMs).
-    if (preg_match('~"[^"]+:(?:/ROMs|/home/retro/ROMs)(?::[a-z]+)?"~', $text)) {
-        return gow_health_item('ok', 'ROM library wired into apps', 'EmulationStation/RetroArch mount /ROMs.');
+    $apps_by_title = gow_config_apps_by_title($text);
+    foreach ($audit['libraries'] as &$lib) {
+        $meta = $spec[$lib['key']];
+        foreach ($meta['apps'] as $canonical) {
+            if (!isset($apps_by_title[$canonical])) {
+                continue;
+            }
+            $entry = $apps_by_title[$canonical];
+            $wired = gow_block_has_mount_dest($entry['block'], $meta['dest']);
+            $lib['apps'][] = [
+                'title'     => $entry['title'],
+                'canonical' => $canonical,
+                'wired'     => $wired,
+            ];
+            if (!$wired) {
+                $audit['all_wired'] = false;
+            }
+        }
+        if (!$lib['apps']) {
+            $audit['all_wired'] = false;
+        }
     }
-    return gow_health_item('warn', 'ROM library wired into apps',
-        'ROMs path set but no app mounts /ROMs yet — use Fix mounts, then relaunch the app.');
+    unset($lib);
+    return $audit;
+}
+
+function gow_library_mount_health_checks(array $cfg) {
+    $audit = gow_library_mount_audit($cfg);
+    if (!$audit['has_any_library']) {
+        return [];
+    }
+    if (!$audit['config_readable']) {
+        return [gow_health_item(
+            'warn',
+            'Libraries in apps',
+            'Wolf has not created config.toml yet. Deploy Wolf, then Advanced → Fix mounts.'
+        )];
+    }
+    if ($audit['all_wired']) {
+        $labels = array_map(function ($l) {
+            return $l['label'];
+        }, $audit['libraries']);
+        return [gow_health_item(
+            'ok',
+            'Libraries in apps',
+            'Configured libraries are mapped in Wolf app runners (' . implode(', ', $labels) . ').'
+        )];
+    }
+    $problems = [];
+    foreach ($audit['libraries'] as $lib) {
+        if (!$lib['apps']) {
+            $problems[] = $lib['label'] . ': add ' . implode(' or ', gow_library_app_spec()[$lib['key']]['apps']) . ' in Wolf Den';
+            continue;
+        }
+        foreach ($lib['apps'] as $app) {
+            if (!$app['wired']) {
+                $problems[] = $app['title'] . ' needs ' . $lib['dest'];
+            }
+        }
+    }
+    return [gow_health_item(
+        'warn',
+        'Libraries in apps',
+        implode('; ', array_slice($problems, 0, 3))
+            . (count($problems) > 3 ? '…' : '')
+            . ' — Advanced → Fix mounts, then relaunch from Moonlight.'
+    )];
+}
+
+// ROM-relevant emulator apps (keys in APP_PRESETS that mount /ROMs).
+function gow_emulator_rom_titles() {
+    return ['RetroArch', 'EmulationStation', 'Pegasus'];
+}
+
+function gow_normalize_app_title($title) {
+    return preg_replace('/[^a-z0-9]/', '', strtolower((string)$title));
+}
+
+function gow_resolve_emulator_title($title) {
+    $resolved = gow_resolve_preset_title($title);
+    if ($resolved !== null && in_array($resolved, gow_emulator_rom_titles(), true)) {
+        return $resolved;
+    }
+    return null;
+}
+
+function gow_text_has_any_rom_mount($text) {
+    return (bool)preg_match('~["\']([^"\']+:(?:/ROMs|/home/retro/ROMs)(?::[a-z]+)?)["\']~', $text);
+}
+
+function gow_config_emulator_apps($text) {
+    $blocks = preg_split('/(?=^\[\[profiles\.apps\]\])/m', $text);
+    $by_canonical = [];
+    foreach ($blocks as $block) {
+        if (!preg_match('/^\s*\[\[profiles\.apps\]\]/', $block)) {
+            continue;
+        }
+        if (!preg_match('/^title\s*=\s*["\']([^"\']+)["\']/m', $block, $tm)) {
+            continue;
+        }
+        $title = $tm[1];
+        $canonical = gow_resolve_emulator_title($title);
+        if ($canonical === null) {
+            continue;
+        }
+        $has_rom = gow_text_has_any_rom_mount($block);
+        if (!isset($by_canonical[$canonical])) {
+            $by_canonical[$canonical] = [
+                'title'         => $title,
+                'canonical'     => $canonical,
+                'has_rom_mount' => $has_rom,
+            ];
+        } elseif ($has_rom) {
+            $by_canonical[$canonical]['has_rom_mount'] = true;
+        }
+    }
+    return array_values($by_canonical);
+}
+
+// Read-only audit: plugin ROM path vs per-emulator /ROMs mounts in config.toml.
+function gow_rom_mount_audit(array $cfg) {
+    $appdata = rtrim($cfg['APPDATA'] ?? '/mnt/user/appdata/gow', '/');
+    $roms = rtrim(trim($cfg['ROMS_LIBRARY'] ?? ''), '/');
+    $audit = [
+        'roms'              => $roms,
+        'config_path'       => $appdata . '/cfg/config.toml',
+        'config_readable'   => false,
+        'apps'              => [],
+        'any_rom_mount'     => false,
+    ];
+    if ($roms === '') {
+        return $audit;
+    }
+    if (!is_readable($audit['config_path'])) {
+        return $audit;
+    }
+    $audit['config_readable'] = true;
+    $text = file_get_contents($audit['config_path']);
+    if ($text === false) {
+        return $audit;
+    }
+    $audit['any_rom_mount'] = gow_text_has_any_rom_mount($text);
+    $audit['apps'] = gow_config_emulator_apps($text);
+    return $audit;
+}
+
+// If a ROMs library is configured, verify Wolf app runners mount it at /ROMs.
+// Superseded by gow_library_mount_health_checks(); kept for rom wiring card helpers.
+function gow_check_rom_mount(array $cfg) {
+    foreach (gow_library_mount_health_checks($cfg) as $check) {
+        if (strpos($check['label'], 'Libraries') !== false) {
+            return $check;
+        }
+    }
+    return null;
 }
 
 // Inspect a host library path for the setup form: does it exist, is it a

@@ -36,5 +36,11 @@ else
     warn "Compose file not found — skipped stack restart"
 fi
 
+if [[ -f "${SCRIPT_DIR}/cleanup-wolf-sessions.sh" ]]; then
+    info "Removing Wolf app sessions so Moonlight relaunch uses new mounts"
+    bash "${SCRIPT_DIR}/cleanup-wolf-sessions.sh" --all-sessions \
+        || warn "Session cleanup reported errors (continuing)"
+fi
+
 info "Fix-all complete."
 exit 0

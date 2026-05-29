@@ -220,6 +220,18 @@
     <URL>&gitPkgURL;/scripts/apply-ui.sh</URL>
   </FILE>
 
+  <FILE Name="&script_dir;/hotfix-page.sh">
+    <URL>&gitPkgURL;/scripts/hotfix-page.sh</URL>
+  </FILE>
+
+  <FILE Name="&script_dir;/dev-sync.sh">
+    <URL>&gitPkgURL;/scripts/dev-sync.sh</URL>
+  </FILE>
+
+  <FILE Name="&script_dir;/library-audit.sh">
+    <URL>&gitPkgURL;/scripts/library-audit.sh</URL>
+  </FILE>
+
   <!-- Settings UI package (built from packages/settings-ui, see DEVELOPING.md).
        SHA256/MD5 are filled in by the release workflow after building the txz. -->
   <FILE Name="&plugin;/packages/settings-ui-&version;.txz">

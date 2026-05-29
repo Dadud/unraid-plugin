@@ -3,3 +3,9 @@ packages/settings-ui/dist/
 dist/
 gow-dev.plg
 
+# Local Unraid dev server (machine-specific IP, generated plg, .env)
+unraid-dev/
+
+__pycache__/
+*.pyc
+

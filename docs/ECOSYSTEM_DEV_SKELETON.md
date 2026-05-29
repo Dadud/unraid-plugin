@@ -104,15 +104,11 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| D1 | `draft/den-settings-connection` | Settings: connection & health | Socket path, Wolf probe, SSE status, paired count, link pairing | [ ] |
-| D2 | `draft/den-settings-local` | Settings: Den-local config | Compat targets, covers mount, orphan app count, data volume | [ ] |
-| D3 | `draft/den-settings-sessions` | Settings: active sessions | `GET /api/v1/sessions` list; preview placeholder | [ ] |
-| D4 | `draft/den-settings-server-readonly` | Settings: server read-only | Use **Tomlyn** to show hostname/codec flags from `/etc/wolf/cfg/config.toml`; no fake edit | [ ] |
-| D5 | `draft/den-info-disk` | Info / overview | Wire `DiskUsage.razor` | [ ] |
+| D1–D5 | `draft/den-settings-overhaul` | Settings (combined) | Tabbed read-only Settings (connection, Den-local, sessions, server TOML, disk) | [draft PR #2](https://github.com/Dadud/wolf-den/pull/2) |
 | ~~D6~~ | — | ~~Import gow presets~~ | **DONE upstream** (`DefaultAppLoader`) — instead: harden parsing + add plex/emby/youtube | [merge] |
 | D7 | `draft/den-profile-update` | Use W1 in-place update | Blocked on wolf **W1**; bindings already bumped | [ ] |
 | D8 | `draft/den-test-route-gate` | Gate `/test` to Development | — | [ ] |
-| D9 | `draft/den-defaultapp-harden` | Harden `DefaultAppLoader` | Defensive TOML keys, optional HDR/pipeline passthrough | [ ] |
+| D9 | `draft/den-defaultapp-harden` | Harden `DefaultAppLoader` | Defensive TOML keys, optional HDR/pipeline passthrough | [draft PR #1](https://github.com/Dadud/wolf-den/pull/1) |
 
 ### 1.4 Settings overhaul IA
 
@@ -145,11 +141,11 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| W1 | `draft/wolf-profiles-update` | `POST /api/v1/profiles/update` | In-place profile edit; stable ordering | [ ] |
-| W2 | `draft/wolf-session-peek` | Session preview API | Read-only stream snapshot/metadata | [ ] |
+| W1 | `draft/wolf-profiles-update` | `POST /api/v1/profiles/update` | In-place profile edit; stable ordering | [draft](https://github.com/Dadud/wolf/pull/2) |
+| W2 | `draft/wolf-session-peek` | Session preview API | Read-only stream snapshot/metadata | [draft](https://github.com/Dadud/wolf/pull/4) |
 | W3 | `draft/wolf-openapi-bindings` | OpenAPI publish + bindings coordination | Tie to bindings `v0.1.x` | [ ] |
-| W4 | `draft/wolf-socket-docs` | Document socket path variants | runtime dir vs `/var/run/wolf` vs plugin volume | [ ] |
-| W5 | `draft/wolf-config-api` | Global config read (then write) | hostname, codec flags, render_node — unblocks Den D4 edit + configurability | [ ] |
+| W4 | `draft/wolf-socket-docs` | Document socket path variants | runtime dir vs `/var/run/wolf` vs plugin volume | [draft](https://github.com/Dadud/wolf/pull/1) |
+| W5 | `draft/wolf-config-get` | Global config read (GET) | hostname, codec flags, render_node — unblocks Den D4 edit + configurability | [draft](https://github.com/Dadud/wolf/pull/3) |
 | W6 | `draft/wolf-quickstart-doc` | quickstart vs Unraid plugin doc | No plugin duplication | [ ] |
 
 **Tracking:** [wolf#356](https://github.com/games-on-whales/wolf/issues/356) (open, profile update + stream peek).
@@ -177,11 +173,12 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 
 | ID | Branch | Title | Scope | Status |
 |----|--------|-------|-------|--------|
-| G1 | `draft/gow-preset-mount-examples` | Commented mount examples | es-de, retroarch | [ ] |
-| G2 | `draft/gow-run-sway-normalize` | Normalize RUN_SWAY | all presets | [ ] |
-| G3 | `draft/gow-preset-ci` | Preset schema CI | deserialize vs Wolf `BaseApp`; also protects Den `DefaultAppLoader` | [ ] |
+| G1 | `draft/gow-preset-mount-examples` | Commented mount examples | es-de, retroarch | [draft](https://github.com/Dadud/gow/pull/1) |
+| G2 | `draft/gow-run-sway-normalize` | Normalize RUN_SWAY | all presets | [draft](https://github.com/Dadud/gow/pull/2) |
+| G3 | `draft/gow-preset-ci` | Preset schema CI | deserialize vs Wolf `BaseApp`; also protects Den `DefaultAppLoader` | [draft](https://github.com/Dadud/gow/pull/3) |
 | G4 | `draft/gow-preset-example` | `wolf.config.example.toml` | placeholder host paths | [ ] |
 | G5 | `draft/gow-preset-pipeline` | Single-source export | gow → wolf default slice + Den catalog | [ ] |
+| G6 | `draft/gow-library-mounts` | Container startup resilience | es-de/retroarch/pegasus/steam/lutris library paths + warnings | [draft] |
 
 ### 3.3 ES-DE / emulator UX (gow + den, NOT plugin)
 
@@ -192,7 +189,21 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 | Empty ES-DE despite `/ROMs` | den Apps mounts + gow docs | User binds `/etc/wolf/roms` wrongly |
 | ROM layout `ROMs/<System>/` | gow docs / ES-DE | Not a plugin validator concern |
 
-**Plugin `repair-esde.sh`:** out of plugin finalize scope; repair belongs in gow startup or a future Den "library health".
+**Plugin `repair-esde.sh`:** out of plugin finalize scope; gow G6 normalizes `ROMDirectory` on startup instead.
+
+---
+
+## 3.5 unraid-plugin (P track) — base branch `main`
+
+Fork PRs stack on `draft/plugin-rom-grabgo` → `draft/plugin-finalize`.
+
+| ID | Branch / PR | Scope | Status |
+|----|-------------|-------|--------|
+| P1–P3 | `draft/plugin-rom-grabgo` [#1](https://github.com/Dadud/unraid-plugin/pull/1) | ROM wiring card, checklist, path validator | [draft] |
+| P4–P9 | `draft/plugin-finalize` [#2](https://github.com/Dadud/unraid-plugin/pull/2) | Apps summary, preset fuzzy-match, digest pinning, ES-DE repair removal, docs | [draft] |
+| P10 | `draft/plugin-finalize` (same stack) | Unified library mounts: per-app audit UI, library chown on deploy, fix-all session refresh, `library-audit.sh` | [draft] |
+
+Local Unraid dev: `unraid-dev/prepare.ps1` + `serve.ps1` → `plugin install http://<dev-ip>:8888/gow-dev.plg`; day-2 updates via `dev-sync.sh`.
 
 ---
 
@@ -205,18 +216,32 @@ A gow preset missing any key throws. Also hardcodes `Support_hdr=false`, empty g
 | Upstream README | `/var/run/wolf/wolf.sock` | mount + `WOLF_SOCKET_PATH` | socat in entrypoint |
 | Unraid plugin | `/tmp/sockets/wolf.sock` | `wolf-socket` volume | doc in W4 + plugin P7 |
 
-### 4.2 ROM wiring layers
+### 4.2 Library mount contract (two layers)
+
+**Layer 1 — Wolf service (compose only):** `gow.cfg` paths → `/etc/wolf/{roms,steam,games,lutris,bioses,media}` inside the **Wolf** container.
+
+**Layer 2 — App sessions (Moonlight apps):** `apply-mount-presets.py` writes host binds into each `[[profiles.apps]]` runner in `config.toml`.
 
 ```text
-gow.cfg → library-links symlink → compose bind → apply-mount-presets → config.toml app mounts → session /ROMs
-                                                                          ↘ ES-DE XML (client state) ← gow/den scope
+gow.cfg → library-links symlink → compose (Layer 1) → apply-mount-presets (Layer 2) → session container paths
+                                                                                    ↘ ES-DE XML (client state) ← gow G6
 ```
 
-Plugin automates through TOML presets only.
+| App | `gow.cfg` key | Session container path | Plugin preset | gow startup (G6) |
+|-----|---------------|------------------------|---------------|------------------|
+| EmulationStation | ROMS, BIOS, MEDIA | `/ROMs`, `/bioses`, `/media` | Yes | Normalize `ROMDirectory`; `~/ROMs` symlink |
+| RetroArch | ROMS | `/ROMs` | Yes | Empty `/ROMs` warning |
+| Pegasus | ROMS, BIOS | `/ROMs`, `/bioses` | Yes | `~/ROMs` symlink |
+| Steam | STEAM | `/home/retro/.local/share/Steam` | Yes | `~/.steam/steam` symlink; writable check |
+| Lutris | LUTRIS | `/var/lutris` | Yes (replaces `lutris:` volume) | Writable check |
+| Prismlauncher / Heroic / xfce | GAMES | `/games` | Yes | — |
+| Kodi | MEDIA | `/media` | Yes | — |
+
+Diagnostics: `bash /boot/config/plugins/gow/scripts/library-audit.sh`
 
 ### 4.3 Preset title brittleness
 
-Plugin `apply-mount-presets.py` matches exact `title`; Den renames break it silently. Surface in Den Settings "mount audit".
+Plugin `apply-mount-presets.py` uses fuzzy title matching and aliases (ES-DE → EmulationStation). Dashboard **Libraries in apps** card shows per-app mount status. Den Settings mount audit still deferred.
 
 ### 4.4 Configurability gap (biggest "config" hole)
 
@@ -230,10 +255,15 @@ Encoders / HDR / resolution / multi-GPU `render_node` are hardcoded-empty in `Ap
 
 ### 4.6 Version-skew / compatibility (stability)
 
-Rolling `:stable`/`:edge` tags + alpha bindings = real drift risk (already bit: wolf #357). **Roadmap:**
-- Plugin: allow pinning image digests in `gow.cfg`; record deployed digests; "update available" vs blind pull.
-- Den: surface effective wolf image + bindings version (D1).
-- Maintain a small **compatibility matrix** (wolf image ↔ bindings ↔ Den ↔ plugin) in docs.
+Rolling `:stable`/`:edge` tags + alpha bindings = real drift risk (already bit: wolf #357).
+
+| Item | Status |
+|------|--------|
+| Plugin digest pinning in `gow.cfg` + `.image-digests` record | Done (P4–P9) |
+| Dashboard digest display | Done |
+| “Update available” vs blind pull | Not started |
+| Den: surface wolf image + bindings version | Partial (Settings connection tab) |
+| Compatibility matrix (wolf ↔ Den ↔ plugin) | See §8 smoke matrix |
 
 ### 4.7 Bindings
 
@@ -257,7 +287,42 @@ The in-stream **end-user** launcher; **Godot/C#** (`src/`, `config.toml`, `Skerg
 
 ---
 
-## 6. Upstream promotion checklist
+## 8. Test matrix and definition of done
+
+Run on Unraid after `dev-sync.sh` (or fresh `plugin install`) → **Fix mounts** → **relaunch from Moonlight**.
+
+| App | Pass criteria |
+|-----|---------------|
+| ES-DE | `grep '/ROMs'` under EmulationStation in `config.toml`; `docker inspect WolfES-DE*` shows host→`/ROMs`; ≥1 system with games |
+| Steam | Steam runner mounts `…/.local/share/Steam`; install or library-add writes under host `steamapps/` |
+| Lutris | Host path → `/var/lutris` (not `lutris:` volume); Lutris opens |
+| RetroArch / Pegasus | `/ROMs` mount present; content smoke |
+| Prismlauncher / Heroic | `/games` mount if `GAMES_LIBRARY` set |
+
+**Fresh install paths**
+
+| Audience | Command |
+|----------|---------|
+| Dev (Windows PC) | `cd unraid-dev; .\prepare.ps1; .\serve.ps1` |
+| Dev (Unraid, first time) | `plugin install http://<dev-ip>:8888/gow-dev.plg` |
+| Dev (Unraid, after edits) | `bash …/dev-sync.sh http://<dev-ip>:8888` |
+| Production | `plugin install https://github.com/games-on-whales/unraid-plugin/releases/latest/download/gow.plg` |
+
+---
+
+## 9. Promotion order (fork → upstream)
+
+1. **P10 + G6** — library mount fix validated on Dudserver (§8).
+2. Merge **P stack** to fork `main`; cut plugin release tag.
+3. **G1–G3** upstream (low risk).
+4. **Den #1 + #2** upstream (Settings + DefaultAppLoader).
+5. **W4** docs upstream.
+6. Defer **W1/W2/W5** until wolf CI green on fork.
+7. Defer G4/G5, W3, D7/D8, §4.5 host contract, wolf-ui §5.
+
+---
+
+## 10. Upstream promotion checklist
 
 - [ ] Branch on correct base (Den → `dev-improvements`, wolf → `stable`, gow → `master`).
 - [ ] Rebased; no collision with in-flight work (check Den `dev-improvements` first).
@@ -268,9 +333,10 @@ The in-stream **end-user** launcher; **Godot/C#** (`src/`, `config.toml`, `Skerg
 
 ---
 
-## 7. Changelog
+## 11. Changelog
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-05-30 | — | P10 unified library mounts; G6 container startup; Library Mount Contract §4.2; §8–§9 test/promotion; fork PR status refresh |
 | 2026-05-29 | — | Initial skeleton from E2E audit + multi-repo plan |
 | 2026-05-29 | — | Opus review: full repo map; wolf-ui (research-only) + wolfmanager (stale/ignore); Den base→dev-improvements, D6 done upstream, +D9; version-skew §4.6; configurability §4.4; cross-platform §4.5; stability bugs §2.3 |
