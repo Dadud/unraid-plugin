@@ -11,9 +11,14 @@ import re
 import sys
 from pathlib import Path
 
+# Wolf Den may use different title strings than our preset keys.
+TITLE_ALIASES: dict[str, str] = {
+    "Prism Launcher": "Prismlauncher",
+}
+
 # title -> list of (config key, container destination)
 APP_PRESETS: dict[str, list[tuple[str, str]]] = {
-    "RetroArch": [("ROMS", "/ROMs")],
+    "RetroArch": [("ROMS", "/ROMs"), ("BIOS", "/bioses")],
     "Pegasus": [("ROMS", "/ROMs"), ("BIOS", "/bioses")],
     "EmulationStation": [("ROMS", "/ROMs"), ("BIOS", "/bioses"), ("MEDIA", "/media")],
     "Steam": [("STEAM", "/home/retro/.local/share/Steam")],
@@ -183,10 +188,15 @@ def load_paths(argv: list[str]) -> dict[str, str]:
     return out
 
 
+def preset_title(title: str) -> str:
+    return TITLE_ALIASES.get(title, title)
+
+
 def desired_for_title(title: str, paths: dict[str, str]) -> list[tuple[str, str, str]]:
     desired: list[tuple[str, str, str]] = []
-    preset = APP_PRESETS.get(title, [])
-    aliases = HOME_MOUNT_ALIASES.get(title, [])
+    key = preset_title(title)
+    preset = APP_PRESETS.get(key, [])
+    aliases = HOME_MOUNT_ALIASES.get(key, [])
     for cfg_key, dest in preset + aliases:
         host = paths.get(cfg_key, "")
         if host:

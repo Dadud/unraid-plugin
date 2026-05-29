@@ -131,7 +131,7 @@ inside the app container:
 | Disc / media images | `/media` | ISO mounting in launchers |
 
 The Unraid plugin writes these into Wolf's `config.toml` app runner mounts using
-your Unraid share paths (for example `/mnt/user/roms:/ROMs:rw`). Mounting folders
+your Unraid share paths (for example `/mnt/user/games/roms:/ROMs:rw`). Mounting folders
 only into the Wolf container at `/etc/wolf/roms` does **not** expose them to
 ES-DE, Pegasus, or RetroArch.
 
@@ -212,7 +212,7 @@ APPDATA=/mnt/user/appdata/gow
 grep -A20 'title = "EmulationStation"' "$APPDATA/cfg/config.toml" | grep -E 'mounts|GOW_REQUIRED'
 ```
 
-You should see host paths like `/mnt/user/roms:/ROMs:rw`, not `/etc/wolf/roms`
+You should see host paths like `/mnt/user/games/roms:/ROMs:rw`, not `/etc/wolf/roms`
 or `/home/retro/ROMs` alone.
 
 ## Out-of-memory (OOM) crashes
