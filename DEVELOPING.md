@@ -78,6 +78,11 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 
 ```bash
 APPDATA=/mnt/user/appdata/gow
+ROMS_LIBRARY=/mnt/user/games/roms
+BIOS_LIBRARY=/mnt/user/games/bioses
+STEAM_LIBRARY=/mnt/user/games/steam
+GAMES_LIBRARY=/mnt/user/games
+LUTRIS_LIBRARY=/mnt/user/games/lutris
 RENDER_NODE=/dev/dri/renderD128
 GPU_VENDOR=NVIDIA
 GPU_NAME=RTX 3090
