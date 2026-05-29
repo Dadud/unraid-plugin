@@ -1,10 +1,15 @@
 #!/bin/bash
-# apply-mount-presets.sh — push plugin library paths into Wolf config.toml app mounts
+# apply-mount-presets.sh — push plugin library paths into Wolf app runners.
+#
+# Uses the Wolf REST API when the Unix socket is available (see wolf-api.sh);
+# otherwise patches config.toml on disk.
 
 set -euo pipefail
 
 source "$(dirname "$0")/vars.sh"
 source "$(dirname "$0")/library-links.sh"
+# shellcheck source=wolf-api.sh
+source "$(dirname "$0")/wolf-api.sh"
 
 err()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -15,13 +20,9 @@ source "$GOW_CFG"
 APPDATA="${APPDATA:-${DEFAULT_APPDATA}}"
 CFG_FILE="${APPDATA}/cfg/config.toml"
 PRESET_SCRIPT="$(dirname "$0")/apply-mount-presets.py"
+WOLF_SOCKET="${APPDATA}/run/wolf.sock"
 
 [[ -f "$PRESET_SCRIPT" ]] || err "Missing ${PRESET_SCRIPT}"
-
-if [[ ! -f "$CFG_FILE" ]]; then
-    info "Wolf config not found yet at ${CFG_FILE}; mount presets will apply on first Wolf start"
-    exit 0
-fi
 
 info "Syncing library symlinks under ${APPDATA}"
 gow_resolve_library_mounts "$APPDATA"
@@ -31,14 +32,28 @@ if [[ -z "$ROMS_LIBRARY$BIOS_LIBRARY$MEDIA_LIBRARY$STEAM_LIBRARY$GAMES_LIBRARY$L
     exit 0
 fi
 
-info "Applying shared library mounts to Wolf app runners in ${CFG_FILE}"
-python3 "$PRESET_SCRIPT" "$CFG_FILE" \
-    "$ROMS_LIBRARY" \
-    "$BIOS_LIBRARY" \
-    "$MEDIA_LIBRARY" \
-    "$STEAM_LIBRARY" \
-    "$GAMES_LIBRARY" \
-    "$LUTRIS_LIBRARY" \
+LIB_ARGS=(
+    "$ROMS_LIBRARY"
+    "$BIOS_LIBRARY"
+    "$MEDIA_LIBRARY"
+    "$STEAM_LIBRARY"
+    "$GAMES_LIBRARY"
+    "$LUTRIS_LIBRARY"
     "$COMPAT_TOOLS_PATH"
+)
+
+if gow_wolf_api_ready "$APPDATA"; then
+    info "Applying library mounts via Wolf API (${WOLF_SOCKET})"
+    python3 "$PRESET_SCRIPT" --socket "$WOLF_SOCKET" "${LIB_ARGS[@]}"
+    exit 0
+fi
+
+if [[ ! -f "$CFG_FILE" ]]; then
+    info "Wolf API socket and config.toml not ready; mount presets will apply after Wolf starts"
+    exit 0
+fi
+
+info "Wolf API unavailable — patching app mounts in ${CFG_FILE}"
+python3 "$PRESET_SCRIPT" "$CFG_FILE" "${LIB_ARGS[@]}"
 
 exit 0

@@ -135,6 +135,7 @@ setup_appdata_dirs() {
     info "Creating appdata directories at ${APPDATA}"
     mkdir -p \
         "${APPDATA}/cfg" \
+        "${APPDATA}/run" \
         "${APPDATA}/wolf-den" \
         "${APPDATA}/covers"
     info "Appdata skeleton created"
@@ -295,7 +296,7 @@ services:
     environment:
       - WOLF_RENDER_NODE=${RENDER_NODE}
       - NVIDIA_DRIVER_VOLUME_NAME=nvidia-driver-vol
-      - XDG_RUNTIME_DIR=/tmp/sockets
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - WOLF_CFG_FILE=/etc/wolf/cfg/config.toml
       - WOLF_DOCKER_SOCKET=/var/run/docker.sock
 $(write_wolf_pairing_env)
@@ -304,11 +305,11 @@ YAML
     cat <<YAML
     volumes:
       - ${APPDATA}:/etc/wolf:rw
+      - ${APPDATA}/run:/var/run/wolf:rw
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - nvidia-driver-vol:/usr/nvidia:rw
-      - wolf-socket:/tmp/sockets
 $(write_library_mounts)
     devices:
       - /dev/dri
@@ -327,12 +328,12 @@ YAML
     image: ghcr.io/games-on-whales/wolf-den:stable
     container_name: wolf-den
     environment:
-      - WOLF_SOCKET_PATH=/tmp/sockets/wolf.sock
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - WOLF_SOCKET_TIMEOUT=60
       - XDG_DATA_HOME=/app/wolf-den
       - ASPNETCORE_URLS=${WOLF_DEN_LISTEN_URL}
     volumes:
-      - wolf-socket:/tmp/sockets
+      - ${APPDATA}/run:/var/run/wolf:rw
       - ${APPDATA}:/etc/wolf:rw
       - ${APPDATA}/wolf-den:/app/wolf-den
 $(write_wolf_den_compat_mount)
@@ -345,7 +346,6 @@ $(write_compose_memory_limits wolf-den)
 volumes:
   nvidia-driver-vol:
     external: true
-  wolf-socket:
 YAML
     write_compose_networks
     } > "$COMPOSE_FILE"
@@ -373,7 +373,7 @@ services:
     container_name: wolf
     environment:
       - WOLF_RENDER_NODE=${RENDER_NODE}
-      - XDG_RUNTIME_DIR=/tmp/sockets
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - WOLF_CFG_FILE=/etc/wolf/cfg/config.toml
       - WOLF_DOCKER_SOCKET=/var/run/docker.sock
 $(write_wolf_pairing_env)
@@ -382,10 +382,10 @@ YAML
     cat <<YAML
     volumes:
       - ${APPDATA}:/etc/wolf:rw
+      - ${APPDATA}/run:/var/run/wolf:rw
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
-      - wolf-socket:/tmp/sockets
 $(write_library_mounts)
     device_cgroup_rules:
       - 'c 13:* rmw'
@@ -403,12 +403,12 @@ YAML
     image: ghcr.io/games-on-whales/wolf-den:stable
     container_name: wolf-den
     environment:
-      - WOLF_SOCKET_PATH=/tmp/sockets/wolf.sock
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - WOLF_SOCKET_TIMEOUT=60
       - XDG_DATA_HOME=/app/wolf-den
       - ASPNETCORE_URLS=${WOLF_DEN_LISTEN_URL}
     volumes:
-      - wolf-socket:/tmp/sockets
+      - ${APPDATA}/run:/var/run/wolf:rw
       - ${APPDATA}:/etc/wolf:rw
       - ${APPDATA}/wolf-den:/app/wolf-den
 $(write_wolf_den_compat_mount)
@@ -417,9 +417,6 @@ $(write_wolf_den_compat_mount)
       - wolf
 $(write_compose_memory_limits wolf-den)
     restart: unless-stopped
-
-volumes:
-  wolf-socket:
 YAML
     write_compose_networks
     } > "$COMPOSE_FILE"
@@ -592,9 +589,12 @@ done
 info "Starting Wolf + Wolf Den..."
 docker compose -f "$COMPOSE_FILE" up -d
 
-info "Waiting for Wolf config (needed for shared library mount presets)..."
-for _ in $(seq 1 30); do
-    [[ -f "${APPDATA}/cfg/config.toml" ]] && break
+info "Waiting for Wolf config and API socket (for library mount presets)..."
+for _ in $(seq 1 45); do
+    [[ -f "${APPDATA}/cfg/config.toml" ]] || { sleep 2; continue; }
+    if [[ -S "${APPDATA}/run/wolf.sock" ]]; then
+        break
+    fi
     sleep 2
 done
 

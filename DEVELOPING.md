@@ -62,7 +62,8 @@ plugin install http://<your-dev-machine-ip>:8888/gow.plg
 | `utils.sh` | Sourced by install/update | Package name/URL helpers and checksum-verified downloads |
 | `pairing-state.sh` | Sourced by deploy/update | Backup/restore Wolf pairing identity (`config.toml`, `key.pem`, `cert.pem`) |
 | `library-links.sh` | Deploy/update/mount presets | Symlink user library paths under `${APPDATA}/` when they live outside GoW appdata |
-| `apply-mount-presets.sh` / `.py` | Deploy/update/fix | Merge plugin library paths into Wolf app runner mounts in `config.toml` |
+| `wolf-api.sh` | Other scripts | `curl` helpers for Wolf's Unix-socket REST API (`/api/v1/*`) |
+| `apply-mount-presets.sh` / `.py` | Deploy/update/fix | Apply library mounts via Wolf API when `${APPDATA}/run/wolf.sock` is up, else patch `config.toml` |
 | `detect-paths.sh` | Plugin install | Suggest existing ROM/BIOS/Steam/etc. share paths to pre-fill setup |
 | `repair-esde.sh` | UI Advanced | Restore ES-DE Custom Scripts config and re-apply ROM/BIOS mounts |
 | `cleanup-wolf-sessions.sh` | UI / stop / Fix mounts | Remove exited `Wolf*` session containers that hold memory |

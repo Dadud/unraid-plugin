@@ -130,8 +130,11 @@ inside the app container:
 | BIOS files | `/bioses` | Many emulators via `~/bioses` |
 | Disc / media images | `/media` | ISO mounting in launchers |
 
-The Unraid plugin writes these into Wolf's `config.toml` app runner mounts using
-your Unraid share paths (for example `/mnt/user/games/roms:/ROMs:rw`). Mounting folders
+The Unraid plugin writes these into each app runner's `mounts` using your Unraid
+share paths (for example `/mnt/user/games/roms:/ROMs:rw`). When Wolf is running,
+**Fix mounts** uses the [Wolf REST API](https://games-on-whales.github.io/wolf/stable/dev/api.html)
+(`GET` / `POST /api/v1/apps`) over the Unix socket at `${APPDATA}/run/wolf.sock`;
+otherwise it patches `config.toml` on disk. Mounting folders
 only into the Wolf container at `/etc/wolf/roms` does **not** expose them to
 ES-DE, Pegasus, or RetroArch.
 

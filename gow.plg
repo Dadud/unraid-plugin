@@ -176,6 +176,9 @@
   <FILE Name="&script_dir;/library-links.sh">
     <URL>&gitPkgURL;/scripts/library-links.sh</URL>
   </FILE>
+  <FILE Name="&script_dir;/wolf-api.sh">
+    <URL>&gitPkgURL;/scripts/wolf-api.sh</URL>
+  </FILE>
   <FILE Name="&script_dir;/apply-mount-presets.sh">
     <URL>&gitPkgURL;/scripts/apply-mount-presets.sh</URL>
   </FILE>
